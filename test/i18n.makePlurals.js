@@ -1,8 +1,9 @@
-const i18n = require('..')
-const should = require('should')
-const fs = require('fs')
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import i18n from '#i18n'
 
-const directory = './localesmakeplural'
+const directory = path.join(os.tmpdir(), 'i18n-node-localesmakeplural')
 
 function getJson(l) {
   return JSON.parse(fs.readFileSync(directory + '/' + l + '.json'))
@@ -73,10 +74,16 @@ describe('i18n supports MakePlural', () => {
 
   beforeEach(() => {
     TestScope = {}
+    fs.rmSync(directory, { recursive: true, force: true })
+    fs.mkdirSync(directory, { recursive: true })
+    for (let i = 0; i < locales.length; i++) {
+      putJson(locales[i], fixture[locales[i]])
+    }
+
     i18n.configure({
       locales: locales,
       register: TestScope,
-      directory: directory,
+      directory,
       updateFiles: true,
       syncFiles: true,
       objectNotation: true
@@ -84,9 +91,10 @@ describe('i18n supports MakePlural', () => {
 
     TestScope.setLocale('en')
     TestScope.__('Hello World') // <-- just inits
-    for (let i = 0; i < locales.length; i++) {
-      putJson(locales[i], fixture[locales[i]])
-    }
+  })
+
+  afterEach(() => {
+    fs.rmSync(directory, { recursive: true, force: true })
   })
 
   it('A test phrase should have got written to all files', (done) => {

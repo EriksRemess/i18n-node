@@ -1,4 +1,4 @@
-const i18n = require('..')
+import i18n from '#i18n'
 
 describe('Locale switching should work queryParameter', () => {
   let req

@@ -1,0 +1,12 @@
+{
+  "name": "i18n-bench",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "bench": "node ./compare.js"
+  },
+  "dependencies": {
+    "i18n-local": "file:..",
+    "i18n-upstream": "npm:i18n@0.15.3"
+  }
+}

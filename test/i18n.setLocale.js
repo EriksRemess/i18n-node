@@ -1,5 +1,4 @@
-const i18n = require('..')
-require('should')
+import i18n from '#i18n'
 
 describe('Locale switching should work on req and res', () => {
   let req

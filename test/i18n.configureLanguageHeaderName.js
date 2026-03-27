@@ -1,5 +1,4 @@
-const { I18n } = require('..')
-require('should')
+import { I18n } from '#i18n'
 
 describe('Locale switching should work when set via custom header', () => {
   const i18n = new I18n({

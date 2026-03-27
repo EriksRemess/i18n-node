@@ -7,16 +7,15 @@
  */
 
 // require modules
-var http = require('http')
-var i18n = require('../..') // require('i18n')
-var url = require('url')
-var path = require('path')
+import http from 'node:http'
+import path from 'node:path'
+import i18n from '#i18n'
 var app
 
 // minimal config
 i18n.configure({
   locales: ['en', 'de'],
-  directory: path.join(__dirname, 'locales'),
+  directory: path.join(import.meta.dirname, 'locales'),
   updateFiles: false,
   autoReload: true
 })
@@ -37,12 +36,12 @@ app = http.createServer(function (req, res) {
 
 // simple param parsing
 app.getDelay = function (req, res) {
-  // eslint-disable-next-line node/no-deprecated-api
-  return url.parse(req.url, true).query.delay || 0
+  return new URL(req.url, 'http://localhost').searchParams.get('delay') || 0
 }
 
 // startup
-app.listen(3000, '127.0.0.1')
+if (import.meta.main) {
+  app.listen(3000, '127.0.0.1')
+}
 
-// export for testing
-module.exports = app
+export default app

@@ -1,6 +1,5 @@
 /* global __, __n */
-const i18n = require('..')
-const should = require('should')
+import i18n from '#i18n'
 
 describe('Module API', () => {
   beforeEach(() => {

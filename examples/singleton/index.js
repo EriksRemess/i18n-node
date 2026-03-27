@@ -1,11 +1,11 @@
-const path = require('path')
-const i18n = require('../..')
-const one = require('./modules/one')
-const two = require('./modules/two')
+import path from 'node:path'
+import i18n from '#i18n'
+import one from './modules/one.js'
+import two from './modules/two.js'
 
 i18n.configure({
   locales: ['en', 'de'],
-  directory: path.join(__dirname, 'locales')
+  directory: path.join(import.meta.dirname, 'locales')
 })
 
 // set to german

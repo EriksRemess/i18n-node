@@ -1,11 +1,11 @@
-const i18n = require('..')
-const should = require('should')
-const fs = require('fs')
-const path = require('path')
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import i18n from '#i18n'
 
 describe('locales configuration', () => {
   it('omitting it should read all directory contents', (done) => {
-    const directory = path.join(__dirname, '..', 'locales')
+    const directory = path.join(import.meta.dirname, '..', 'locales')
 
     i18n.configure({
       directory: directory
@@ -30,9 +30,10 @@ describe('locales configuration', () => {
   })
 
   it('should work when using together with prefix', (done) => {
-    const directory = path.join(__dirname, '..', 'testlocales')
+    const directory = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'i18n-node-testlocales-')
+    )
 
-    fs.mkdirSync(directory)
     fs.writeFileSync(directory + '/.gitkeepornot', 'just kidding')
     fs.writeFileSync(directory + '/app-de.json', '{}')
     fs.writeFileSync(directory + '/app-en.json', '{}')
@@ -54,9 +55,10 @@ describe('locales configuration', () => {
   })
 
   it('should work when using together with prefix and extension', (done) => {
-    const directory = path.join(__dirname, '..', 'testlocales')
+    const directory = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'i18n-node-testlocales-')
+    )
 
-    fs.mkdirSync(directory)
     fs.writeFileSync(directory + '/app-de.js', '{}')
     fs.writeFileSync(directory + '/app-en.js', '{}')
 
@@ -77,9 +79,10 @@ describe('locales configuration', () => {
   })
 
   it('should ignore unmatching files when using together with prefix and extension', (done) => {
-    const directory = path.join(__dirname, '..', 'testlocales')
+    const directory = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'i18n-node-testlocales-')
+    )
 
-    fs.mkdirSync(directory)
     fs.writeFileSync(directory + '/app-de.js', '{}')
     fs.writeFileSync(directory + '/app-en.js', '{}')
     fs.writeFileSync(directory + '/web-fr.json', '{}')

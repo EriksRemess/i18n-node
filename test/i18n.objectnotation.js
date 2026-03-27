@@ -1,7 +1,7 @@
 /* global __, __n */
 
-const i18n = require('..')
-const should = require('should')
+import i18n from '#i18n'
+import { I18n } from '#i18n'
 
 describe('Object Notation', () => {
   beforeEach(() => {
@@ -40,7 +40,10 @@ describe('Object Notation', () => {
       should.equal(__('greeting.informal'), 'Hi')
       should.equal(__('greeting.placeholder.formal', 'Marcus'), 'Hello Marcus')
       should.equal(__('greeting.placeholder.informal', 'Marcus'), 'Hi Marcus')
-      should.throws(__('greeting.placeholder.loud', 'Marcus'))
+      should.equal(
+        __('greeting.placeholder.loud', 'Marcus'),
+        'greeting.placeholder.loud'
+      )
     })
 
     it('should return en translations as expected, when dot is first or last character', () => {
@@ -70,6 +73,46 @@ describe('Object Notation', () => {
       should.equal(__('nested.path.sub'), 'nested.path.sub')
       should.deepEqual(__('nested.path'), {
         sub: 'nested.path.sub'
+      })
+    })
+
+    it('should rebuild a scalar branch when extending object notation paths', () => {
+      const instance = new I18n({
+        objectNotation: true,
+        defaultLocale: 'en',
+        staticCatalog: {
+          en: {
+            broken: 'value'
+          }
+        }
+      })
+
+      should.equal(
+        instance.__({ locale: 'en', phrase: 'broken.deep:fallback value' }),
+        'fallback value'
+      )
+      should.deepEqual(instance.getCatalog('en').broken, {
+        deep: 'fallback value'
+      })
+    })
+
+    it('should rebuild a null branch when extending object notation paths', () => {
+      const instance = new I18n({
+        objectNotation: true,
+        defaultLocale: 'en',
+        staticCatalog: {
+          en: {
+            broken: null
+          }
+        }
+      })
+
+      should.equal(
+        instance.__({ locale: 'en', phrase: 'broken.deep:fallback value' }),
+        'fallback value'
+      )
+      should.deepEqual(instance.getCatalog('en').broken, {
+        deep: 'fallback value'
       })
     })
   })

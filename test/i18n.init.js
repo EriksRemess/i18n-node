@@ -1,6 +1,4 @@
-const i18n = require('..')
-const should = require('should')
-const sinon = require('sinon')
+import i18n from '#i18n'
 
 describe('i18n.init()', () => {
   let TestScope
@@ -30,7 +28,10 @@ describe('i18n.init()', () => {
       }
     }
     TestResponse = {}
-    next = sinon.spy()
+    next = () => {
+      next.called = true
+    }
+    next.called = false
     i18n.configure({
       locales: ['de', 'en'],
       directory: './locales',

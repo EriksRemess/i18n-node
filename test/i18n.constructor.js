@@ -1,6 +1,4 @@
-const { I18n } = require('..')
-const i18n = require('..')
-const should = require('should')
+import i18n, { I18n } from '#i18n'
 
 const testApi = (instance) => {
   should.equal(typeof instance.configure, 'function')

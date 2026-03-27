@@ -1,38 +1,40 @@
-const { I18n } = require('..')
-const should = require('should')
-const fs = require('fs')
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { I18n } from '#i18n'
 
 describe('retryInDefaultLocaleWithSync', () => {
-  const DIRECTORY = './locales_in_sync'
-  const CONFIG = {
-    locales: ['en', 'de'],
-    directory: DIRECTORY,
-    defaultLocale: 'en',
-    retryInDefaultLocale: true,
-    syncFiles: true
+  const directory = path.join(os.tmpdir(), 'i18n-node-locales-in-sync')
+  const createConfig = () => {
+    return {
+      locales: ['en', 'de'],
+      directory,
+      defaultLocale: 'en',
+      retryInDefaultLocale: true,
+      syncFiles: true
+    }
   }
 
   const readJson = (locale) => {
-    return JSON.parse(fs.readFileSync(`${DIRECTORY}/${locale}.json`))
+    return JSON.parse(fs.readFileSync(path.join(directory, `${locale}.json`)))
   }
 
   const writeJson = (locale, data) => {
     fs.writeFileSync(
-      `${DIRECTORY}/${locale}.json`,
+      path.join(directory, `${locale}.json`),
       JSON.stringify(data, null, '\t')
     )
   }
 
   describe('writing', () => {
-    const i18n = new I18n(CONFIG)
+    const i18n = new I18n(createConfig())
     const req = {}
     i18n.init(req)
+    before(() => {
+      fs.rmSync(directory, { recursive: true, force: true })
+    })
     after(() => {
-      try {
-        fs.unlinkSync(`${DIRECTORY}/de.json`)
-        fs.unlinkSync(`${DIRECTORY}/en.json`)
-        fs.rmdirSync(DIRECTORY)
-      } catch (e) {}
+      fs.rmSync(directory, { recursive: true, force: true })
     })
 
     it('should not throw', () => {
@@ -47,8 +49,8 @@ describe('retryInDefaultLocaleWithSync', () => {
     })
 
     it('should have written all files', () => {
-      const statsen = fs.lstatSync(`${DIRECTORY}/en.json`)
-      const statsde = fs.lstatSync(`${DIRECTORY}/de.json`)
+      const statsen = fs.lstatSync(path.join(directory, 'en.json'))
+      const statsde = fs.lstatSync(path.join(directory, 'de.json'))
       should.exist(statsen)
       should.exist(statsde)
     })
@@ -56,7 +58,7 @@ describe('retryInDefaultLocaleWithSync', () => {
     it('should not have written unsupported locale files', () => {
       let statsfr
       try {
-        statsfr = fs.lstatSync(`${DIRECTORY}/fr.json`)
+        statsfr = fs.lstatSync(path.join(directory, 'fr.json'))
       } catch (e) {
         should.equal(e.code, 'ENOENT')
       }
@@ -71,17 +73,20 @@ describe('retryInDefaultLocaleWithSync', () => {
   })
 
   describe('reading', () => {
-    writeJson('en', { test: 'test', welcome: 'welcome' })
-    writeJson('de', { test: 'test', welcome: 'Willkommen' })
-    const i18n = new I18n(CONFIG)
-    const req = {}
-    i18n.init(req)
+    let i18n
+    let req
+
+    before(() => {
+      fs.rmSync(directory, { recursive: true, force: true })
+      fs.mkdirSync(directory, { recursive: true })
+      writeJson('en', { test: 'test', welcome: 'welcome' })
+      writeJson('de', { test: 'test', welcome: 'Willkommen' })
+      i18n = new I18n(createConfig())
+      req = {}
+      i18n.init(req)
+    })
     after(() => {
-      try {
-        fs.unlinkSync(`${DIRECTORY}/de.json`)
-        fs.unlinkSync(`${DIRECTORY}/en.json`)
-        fs.rmdirSync(DIRECTORY)
-      } catch (e) {}
+      fs.rmSync(directory, { recursive: true, force: true })
     })
 
     it('should still return default locales value', () => {

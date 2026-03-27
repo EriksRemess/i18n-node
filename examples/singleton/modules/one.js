@@ -1,5 +1,5 @@
-const i18n = require('../../..')
+import i18n from '#i18n'
 
-module.exports = () => {
+export default () => {
   console.log('one.js', i18n.__('Hello'))
 }

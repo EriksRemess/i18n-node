@@ -1,5 +1,4 @@
-const { I18n } = require('..')
-const should = require('should')
+import { I18n } from '#i18n'
 
 describe('mustache configuration', () => {
   const e = should.equal
@@ -64,5 +63,19 @@ describe('mustache configuration', () => {
     e(i18n4.__('Hello **{name}**', { name }), 'Hello **{name}**')
     e(i18n4.__('Hello **name**', { name }), 'Hello **name**')
     done()
+  })
+
+  it('should reset mustache configuration on reconfigure', () => {
+    const i18n = new I18n({
+      staticCatalog,
+      mustacheConfig: { tags: ['<%', '%>'] }
+    })
+
+    e(i18n.__('Hello <%name%>', { name }), 'Hello Pudo &amp; Moka')
+
+    i18n.configure({ staticCatalog })
+
+    e(i18n.__('Hello {{name}}', { name }), 'Hello Pudo &amp; Moka')
+    e(i18n.__('Hello <%name%>', { name }), 'Hello <%name%>')
   })
 })

@@ -1,4 +1,4 @@
-const { I18n } = require('..')
+import { I18n } from '#i18n'
 
 describe('Fallbacks', () => {
   let i18n = new I18n()

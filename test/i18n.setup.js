@@ -1,12 +1,13 @@
-const i18n = require('..')
-const pkgVersion = require('../package.json').version
-const should = require('should')
+import i18n from '#i18n'
+import pkg from '#package' with { type: 'json' }
+
+const pkgVersion = pkg.version
 
 i18n.configure({
   locales: ['en', 'de'],
   fallbacks: { nl: 'de' },
   directory: './locales',
-  register: global
+  register: globalThis
 })
 
 describe('Module Setup', () => {

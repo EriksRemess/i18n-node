@@ -1,5 +1,4 @@
-const { I18n } = require('..')
-const should = require('should')
+import { I18n } from '#i18n'
 
 describe('retryInDefaultLocale', () => {
   const i18nWithDefault = new I18n({

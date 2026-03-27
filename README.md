@@ -6,12 +6,8 @@ Stores language files in json files compatible to [webtranslateit](http://webtra
 Adds new strings on-the-fly when first used in your app.
 No extra parsing needed.
 
-![Test](https://github.com/mashpie/i18n-node/actions/workflows/node.js.yml/badge.svg)
-[![Test Coverage][codecov-image]][codecov-url]
 [![NPM version][npm-image]][npm-url]
 ![npm](https://img.shields.io/npm/dw/i18n)
-[![Known Vulnerabilities][snyk-image]][snyk-url]
-[![FOSSA Status][fossa-image]][fossa-url]
 
 <p align="center">
 <a href="https://www.buymeacoffee.com/mashpie" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/default-orange.png" alt="Buy Me A Coffee" style="height: 51px !important;width: 217px !important; border-radius: 0.5rem !important;" width="217" height="51"></a><br>
@@ -25,13 +21,13 @@ npm install i18n --save
 ## Synopsis
 
 ```js
-const http = require('http')
-const path = require('path')
-const { I18n } = require('i18n')
+import http from 'node:http'
+import path from 'node:path'
+import { I18n } from 'i18n'
 
 const i18n = new I18n({
   locales: ['en', 'de'],
-  directory: path.join(__dirname, 'locales')
+  directory: path.join(import.meta.dirname, 'locales')
 })
 
 const app = http.createServer((req, res) => {
@@ -60,16 +56,17 @@ Minimal example, just setup two locales and a project specific directory.
 
 ```js
 /**
- * require I18n with capital I as constructor
+ * import I18n with capital I as constructor
  */
-const { I18n } = require('i18n')
+import path from 'node:path'
+import { I18n } from 'i18n'
 
 /**
  * create a new instance with it's configuration
  */
 const i18n = new I18n({
   locales: ['en', 'de'],
-  directory: path.join(__dirname, 'locales')
+  directory: path.join(import.meta.dirname, 'locales')
 })
 ```
 
@@ -77,9 +74,10 @@ Alternatively split creation and configuration, useful when split up into differ
 
 ```js
 /**
- * require I18n with capital I as constructor
+ * import I18n with capital I as constructor
  */
-const { I18n } = require('i18n')
+import path from 'node:path'
+import { I18n } from 'i18n'
 
 /**
  * create a new instance
@@ -91,7 +89,7 @@ const i18n = new I18n()
  */
 i18n.configure({
   locales: ['en', 'de'],
-  directory: path.join(__dirname, '/locales')
+  directory: path.join(import.meta.dirname, 'locales')
 })
 ```
 
@@ -101,14 +99,15 @@ i18n.configure({
 Same Minimal example, just setup two locales and a project specific directory.
 
 ```js
-const i18n = require('i18n')
+import path from 'node:path'
+import i18n from 'i18n'
 
 /**
  * configure shared state
  */
 i18n.configure({
   locales: ['en', 'de'],
-  directory: path.join(__dirname, '/locales')
+  directory: path.join(import.meta.dirname, 'locales')
 })
 ```
 
@@ -117,9 +116,9 @@ Now you are ready to use a global `i18n.__('Hello')`.
 Require `i18n`in another file reuses same configuration and shares state:
 
 ```js
-const i18n = require('i18n')
+import i18n from 'i18n'
 
-module.exports = () => {
+export default () => {
   console.log(i18n.__('Hello'))
 }
 ```
@@ -199,18 +198,22 @@ The api is subject of incremental development. That means, it should not change 
 You should configure your application once to bootstrap all aspects of `i18n`. You should not configure i18n in each loop when used in an http based scenario. During configuration, `i18n` reads all known locales into memory and prepares to keep that superfast object in sync with your files in filesystem  as configured
 
 ```js
+import path from 'node:path'
+
 i18n.configure({
   locales: ['en', 'de'],
-  directory: path.join(__dirname, 'locales')
+  directory: path.join(import.meta.dirname, 'locales')
 })
 ```
 
 **Since 0.7.0** you may even omit the `locales` setting and just configure a `directory`. `i18n` will read all files within that directory and detect all given locales by their filenames.
 
 ```js
+import path from 'node:path'
+
 i18n.configure({
-  directory: path.join(__dirname, 'locales')
-});
+  directory: path.join(import.meta.dirname, 'locales')
+})
 ```
 
 #### list of all configuration options
@@ -264,17 +267,17 @@ i18n.configure({
   // enable object notation
   objectNotation: false,
 
-  // setting of log level DEBUG - default to require('debug')('i18n:debug')
+  // setting of log level DEBUG - defaults to i18n's DEBUG-controlled logger
   logDebugFn: function (msg) {
     console.log('debug', msg)
   },
 
-  // setting of log level WARN - default to require('debug')('i18n:warn')
+  // setting of log level WARN - defaults to i18n's DEBUG-controlled logger
   logWarnFn: function (msg) {
     console.log('warn', msg)
   },
 
-  // setting of log level ERROR - default to require('debug')('i18n:error')
+  // setting of log level ERROR - defaults to i18n's DEBUG-controlled logger
   logErrorFn: function (msg) {
     console.log('error', msg)
   },
@@ -362,15 +365,17 @@ Instead of letting i18n load translations from a given directory you may pass tr
 
 ```js
 // DEMO: quickly add yaml support
-const yaml = require('js-yaml')
-const fs = require('fs')
+import fs from 'node:fs'
+import de from '../../locales/de-as-json.json' with { type: 'json' }
+import en from '../../locales/en-as-module.js'
+import YAML from 'yaml'
 
 // configure and load translations from different locations
 i18n.configure({
   staticCatalog: {
-    de: require('../../locales/de-as-json.json'),
-    en: require('../../locales/en-as-module.js'),
-    fr: yaml.safeLoad(fs.readFileSync('../../locales/fr-as-yaml.yml', 'utf8'))
+    de,
+    en,
+    fr: YAML.parse(fs.readFileSync('../../locales/fr-as-yaml.yml', 'utf8'))
   },
   defaultLocale: 'de'
 })
@@ -382,7 +387,7 @@ i18n.configure({
 
 Instead of parsing all file contents as JSON, you can parse them as YAML or any other format you like
 ```js
-const YAML = require('yaml')
+import YAML from 'yaml'
 
 i18n.configure({
   extension: '.yml',
@@ -1080,7 +1085,7 @@ that file can be edited or just uploaded to [webtranslateit](http://docs.webtran
 
 ## Logging & Debugging
 
-Logging any kind of output is moved to [debug](https://github.com/visionmedia/debug) module. To let i18n output anything run your app with `DEBUG` env set like so:
+Logging is controlled by i18n's built-in lightweight debug helper. To let i18n output anything run your app with `DEBUG` env set like so:
 
 ```sh
 $ DEBUG=i18n:* node app.js
@@ -1098,7 +1103,7 @@ if you only want to get errors and warnings reported start your node server like
 $ DEBUG=i18n:warn,i18n:error node app.js
 ```
 
-Combine those settings with you existing application if any of you other modules or libs also uses __debug__
+Combine those settings with your existing application if other modules also use `DEBUG`.
 
 ### Using custom logger
 
@@ -1106,17 +1111,17 @@ You can configure i18n to use a custom logger. For example attach some simple `c
 
 ```js
 i18n.configure({
-  // setting of log level DEBUG - default to require('debug')('i18n:debug')
+  // setting of log level DEBUG - defaults to i18n's DEBUG-controlled logger
   logDebugFn: function (msg) {
     console.log('debug', msg)
   },
 
-  // setting of log level WARN - default to require('debug')('i18n:warn')
+  // setting of log level WARN - defaults to i18n's DEBUG-controlled logger
   logWarnFn: function (msg) {
     console.log('warn', msg)
   },
 
-  // setting of log level ERROR - default to require('debug')('i18n:error')
+  // setting of log level ERROR - defaults to i18n's DEBUG-controlled logger
   logErrorFn: function (msg) {
     console.log('error', msg)
   }
@@ -1143,12 +1148,3 @@ For current release notes see [GitHub Release Notes](https://github.com/mashpie/
 
 [npm-image]: https://badge.fury.io/js/i18n.svg
 [npm-url]: https://www.npmjs.com/package/i18n
-
-[codecov-image]: https://codecov.io/gh/mashpie/i18n-node/branch/master/graph/badge.svg
-[codecov-url]: https://codecov.io/gh/mashpie/i18n-node
-
-[snyk-image]: https://snyk.io/test/npm/i18n/badge.svg
-[snyk-url]: https://snyk.io/test/npm/i18n
-
-[fossa-image]: https://app.fossa.com/api/projects/git%2Bgithub.com%2Fmashpie%2Fi18n-node.svg?type=shield
-[fossa-url]: https://app.fossa.com/projects/git%2Bgithub.com%2Fmashpie%2Fi18n-node?ref=badge_shield

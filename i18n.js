@@ -4,33 +4,34 @@
  * @license     http://opensource.org/licenses/MIT
  */
 
-'use strict'
+import fs from 'node:fs'
+import path from 'node:path'
+import Messageformat from '@messageformat/core'
+import * as MakePlural from 'make-plural'
+import parseIntervalModule from 'math-interval-parser'
+import Mustache from 'mustache'
+import pkg from '#package' with { type: 'json' }
+import createDebug from '#debug'
+import { printf } from '#printf'
 
-// dependencies
-const printf = require('fast-printf').printf
-const pkgVersion = require('./package.json').version
-const fs = require('fs')
-const url = require('url')
-const path = require('path')
-const debug = require('debug')('i18n:debug')
-const warn = require('debug')('i18n:warn')
-const error = require('debug')('i18n:error')
-const Mustache = require('mustache')
-const Messageformat = require('@messageformat/core')
-const MakePlural = require('make-plural')
-const parseInterval = require('math-interval-parser').default
+const pkgVersion = pkg.version
+const parseInterval = parseIntervalModule.default
+const debug = createDebug('i18n:debug')
+const warn = createDebug('i18n:warn')
+const error = createDebug('i18n:error')
 
 // utils
 const escapeRegExp = (string) => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') // $& means the whole matched string
 
 /**
- * create constructor function
+ * create constructor class
  */
-const i18n = function I18n(_OPTS = false) {
+class I18n {
+  constructor(_OPTS = false) {
   const MessageformatInstanceForLocale = {}
   const PluralsForLocale = {}
   let locales = {}
-  const api = {
+  const defaultApi = {
     __: '__',
     __n: '__n',
     __l: '__l',
@@ -43,14 +44,20 @@ const i18n = function I18n(_OPTS = false) {
     addLocale: 'addLocale',
     removeLocale: 'removeLocale'
   }
-  const mustacheConfig = {
+  let api = { ...defaultApi }
+  const defaultMustacheConfig = {
     tags: ['{{', '}}'],
     disable: false
+  }
+  let mustacheConfig = {
+    ...defaultMustacheConfig,
+    tags: [...defaultMustacheConfig.tags]
   }
 
   let mustacheRegex
   const pathsep = path.sep // ---> means win support will be available in node 0.8.x and above
   let autoReload
+  let autoReloadWatcher
   let cookiename
   let languageHeaderName
   let defaultLocale
@@ -74,19 +81,29 @@ const i18n = function I18n(_OPTS = false) {
   let parser
 
   // public exports
-  const i18n = {}
+  const i18n = this
 
   i18n.version = pkgVersion
 
   i18n.configure = function i18nConfigure(opt) {
+    if (autoReloadWatcher) {
+      autoReloadWatcher.close()
+      autoReloadWatcher = undefined
+    }
+
     // reset locales
     locales = {}
+    api = { ...defaultApi }
+    mustacheConfig = {
+      ...defaultMustacheConfig,
+      tags: [...defaultMustacheConfig.tags]
+    }
 
     // Provide custom API method aliases if desired
     // This needs to be processed before the first call to applyAPItoObject()
     if (opt.api && typeof opt.api === 'object') {
       for (const method in opt.api) {
-        if (Object.prototype.hasOwnProperty.call(opt.api, method)) {
+        if (Object.hasOwn(opt.api, method)) {
           const alias = opt.api[method]
           if (typeof api[method] !== 'undefined') {
             api[method] = alias
@@ -122,7 +139,7 @@ const i18n = function I18n(_OPTS = false) {
     directory =
       typeof opt.directory === 'string'
         ? opt.directory
-        : path.join(__dirname, 'locales')
+        : path.join(import.meta.dirname, 'locales')
 
     // permissions when creating new directories
     directoryPermissions =
@@ -223,14 +240,18 @@ const i18n = function I18n(_OPTS = false) {
       // auto reload locale files when changed
       if (autoReload) {
         // watch changes of locale files (it's called twice because fs.watch is still unstable)
-        fs.watch(directory, (event, filename) => {
+        autoReloadWatcher = fs.watch(
+          directory,
+          { persistent: false },
+          (event, filename) => {
           const localeFromFile = guessLocaleFromFile(filename)
 
           if (localeFromFile && opt.locales.indexOf(localeFromFile) > -1) {
             logDebug('Auto reloading locale file "' + filename + '".')
             read(localeFromFile)
           }
-        })
+          }
+        )
       }
     }
   }
@@ -666,7 +687,7 @@ const i18n = function I18n(_OPTS = false) {
 
     // attach to itself if not provided
     for (const method in api) {
-      if (Object.prototype.hasOwnProperty.call(api, method)) {
+      if (Object.hasOwn(api, method)) {
         const alias = api[method]
 
         // be kind rewind, or better not touch anything already existing
@@ -757,17 +778,29 @@ const i18n = function I18n(_OPTS = false) {
 
       // a query parameter overwrites all
       if (queryParameter && request.url) {
+        let languageQueryParameter
+
+        if (
+          request.query &&
+          typeof request.query === 'object' &&
+          Object.hasOwn(request.query, queryParameter)
+        ) {
+          languageQueryParameter = request.query[queryParameter]
+        }
+
         const urlAsString =
           typeof request.url === 'string' ? request.url : request.url.toString()
+        const urlObj = new URL(urlAsString, 'http://localhost')
+        if (languageQueryParameter === undefined) {
+          const queryParameters = urlObj.searchParams.getAll(queryParameter)
+          languageQueryParameter =
+            queryParameters.length <= 1 ? queryParameters[0] : queryParameters
+        }
 
-        /**
-         * @todo WHATWG new URL() requires full URL including hostname - that might change
-         * @see https://github.com/nodejs/node/issues/12682
-         */
-        // eslint-disable-next-line node/no-deprecated-api
-        const urlObj = url.parse(urlAsString, true)
-        const languageQueryParameter = urlObj.query[queryParameter]
-        if (languageQueryParameter) {
+        if (
+          languageQueryParameter !== undefined &&
+          languageQueryParameter !== null
+        ) {
           let queryLanguage = extractQueryLanguage(languageQueryParameter)
           if (queryLanguage) {
             logDebug('Overriding locale from query: ' + queryLanguage)
@@ -1092,6 +1125,7 @@ const i18n = function I18n(_OPTS = false) {
    */
   const localeAccessor = (locale, singular, allowDelayedTraversal) => {
     // Bail out on non-existent locales to defend against internal errors.
+    /* node:coverage ignore next */
     if (!locales[locale]) return Function.prototype
 
     // Handle object lookup notation
@@ -1114,7 +1148,7 @@ const i18n = function I18n(_OPTS = false) {
         // it doesn't have the next subterm as a member...
         if (
           object === null ||
-          !Object.prototype.hasOwnProperty.call(object, index)
+          !Object.hasOwn(object, index)
         ) {
           // ...remember that we need retraversal (because we didn't find our target).
           reTraverse = allowDelayedTraversal
@@ -1153,6 +1187,7 @@ const i18n = function I18n(_OPTS = false) {
    */
   const localeMutator = function (locale, singular, allowBranching) {
     // Bail out on non-existent locales to defend against internal errors.
+    /* node:coverage ignore next */
     if (!locales[locale]) return Function.prototype
 
     // Handle object lookup notation
@@ -1162,21 +1197,17 @@ const i18n = function I18n(_OPTS = false) {
       if (typeof allowBranching === 'undefined') allowBranching = false
       // This will become the function we want to return.
       let accessor = null
-      // An accessor that takes one argument and returns null.
-      const nullAccessor = () => null
       // Fix object path.
-      let fixObject = () => ({})
+      let fixObject
       // Are we going to need to re-traverse the tree when the mutator is invoked?
       let reTraverse = false
       // Split the provided term and run the callback for each subterm.
       singular.split(objectNotation).reduce((object, index) => {
-        // Make the mutator do nothing.
-        accessor = nullAccessor
         // If our current target object (in the locale tree) doesn't exist or
         // it doesn't have the next subterm as a member...
         if (
           object === null ||
-          !Object.prototype.hasOwnProperty.call(object, index)
+          !Object.hasOwn(object, index)
         ) {
           // ...check if we're allowed to create new branches.
           if (allowBranching) {
@@ -1340,9 +1371,8 @@ const i18n = function I18n(_OPTS = false) {
     )
     // use .js as fallback if already existing
     try {
-      if (fs.statSync(filepathJS)) {
+      if (ext !== '.js' && fs.statSync(filepathJS)) {
         logDebug('using existing file ' + filepathJS)
-        extension = '.js'
         return filepathJS
       }
     } catch (e) {
@@ -1354,8 +1384,7 @@ const i18n = function I18n(_OPTS = false) {
   /**
    * Get locales with wildcard support
    */
-  const getFallback = (targetLocale, fallbacks) => {
-    fallbacks = fallbacks || {}
+  const getFallback = (targetLocale, fallbacks = {}) => {
     if (fallbacks[targetLocale]) return fallbacks[targetLocale]
     let fallBackLocale = null
     for (const key in fallbacks) {
@@ -1398,7 +1427,7 @@ const i18n = function I18n(_OPTS = false) {
    */
   if (_OPTS) i18n.configure(_OPTS)
 
-  return i18n
+  }
 }
 
-module.exports = i18n
+export default I18n

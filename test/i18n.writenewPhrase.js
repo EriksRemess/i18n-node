@@ -1,8 +1,9 @@
-const i18n = require('..')
-const should = require('should')
-const fs = require('fs')
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import i18n from '#i18n'
 
-const directory = './localestowrite'
+const directory = path.join(os.tmpdir(), 'i18n-node-localestowrite')
 
 function getJson(l) {
   return JSON.parse(fs.readFileSync(directory + '/' + l + '.json'))
@@ -18,15 +19,20 @@ describe('when i18n gets a new phrase', () => {
 
   beforeEach(() => {
     TestScope = {}
+    fs.rmSync(directory, { recursive: true, force: true })
     i18n.configure({
       locales: locales,
       register: TestScope,
-      directory: directory,
+      directory,
       updateFiles: true,
       syncFiles: true,
       objectNotation: true
     })
     TestScope.setLocale('en')
+  })
+
+  afterEach(() => {
+    fs.rmSync(directory, { recursive: true, force: true })
   })
 
   it('should get written to all files with __()', (done) => {
@@ -47,6 +53,19 @@ describe('when i18n gets a new phrase', () => {
   })
 
   it('should not alter any given translation with __()', (done) => {
+    const german = getJson('de')
+    german.car = 'Auto'
+    putJson('de', german)
+    i18n.configure({
+      locales: locales,
+      register: TestScope,
+      directory,
+      updateFiles: true,
+      syncFiles: true,
+      objectNotation: true
+    })
+    TestScope.setLocale('en')
+
     TestScope.__('car')
     should.deepEqual(getJson('en').car, 'car')
     should.deepEqual(getJson('de').car, 'Auto')
@@ -115,6 +134,7 @@ describe('when i18n gets a new phrase', () => {
   })
 
   it('should add subnodes to dotnotaction by use of __()', (done) => {
+    TestScope.__('some.deeper.example')
     TestScope.__('some.other.example:with defaults')
     const expected = {
       deeper: { example: 'some.deeper.example' },

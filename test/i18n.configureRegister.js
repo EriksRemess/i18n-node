@@ -1,10 +1,9 @@
-const { I18n } = require('..')
-const should = require('should')
+import { I18n } from '#i18n'
 
 describe('configure register', () => {
   it('should work on a custom object', (done) => {
     const customObject = {}
-    I18n({
+    new I18n({
       locales: ['en', 'de'],
       register: customObject
     })

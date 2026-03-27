@@ -1,11 +1,12 @@
-const fs = require('fs')
-const path = require('path')
-const { I18n } = require('..')
-require('should')
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { I18n } from '#i18n'
 
+const traversalRoot = path.join(os.tmpdir(), 'i18n-node-locales_traversal')
 const config = {
   locales: ['en'],
-  directory: path.join(__dirname, '../locales_traversal/is/not/possible')
+  directory: path.join(traversalRoot, 'is', 'not', 'possible')
 }
 const testfile = path.join(config.directory, 'en.json')
 
@@ -15,9 +16,8 @@ const getJson = () => {
 
 describe('No directory traversal for writing', () => {
   before('cleanup assertions', () => {
-    try {
-      fs.unlinkSync(testfile)
-    } catch (_) {}
+    fs.rmSync(traversalRoot, { recursive: true, force: true })
+    fs.mkdirSync(config.directory, { recursive: true })
   })
 
   it(`setLocale('../../foo') SHOULD write to testfile`, () => {
@@ -99,7 +99,12 @@ describe('No directory traversal for writing', () => {
 
 describe('No directory traversal for reading', () => {
   before('prepare assertion', () => {
+    fs.mkdirSync(config.directory, { recursive: true })
     fs.writeFileSync(testfile, `{ "Hello": "Hello from 'en.json'" }`)
+  })
+
+  after(() => {
+    fs.rmSync(traversalRoot, { recursive: true, force: true })
   })
 
   it(`setLocale('../some') SHOULD read from testfile`, () => {

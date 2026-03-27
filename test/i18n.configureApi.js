@@ -1,10 +1,9 @@
-const { I18n } = require('..')
-const should = require('should')
+import { I18n } from '#i18n'
 
 describe('configure api', () => {
   it('should set an alias method on the object', () => {
     const customObject = {}
-    I18n({
+    new I18n({
       locales: ['en', 'de'],
       register: customObject,
       api: {
@@ -19,7 +18,7 @@ describe('configure api', () => {
 
   it('should work for any existing API method', () => {
     const customObject = {}
-    I18n({
+    new I18n({
       locales: ['en', 'de'],
       register: customObject,
       api: {
@@ -33,7 +32,7 @@ describe('configure api', () => {
 
   it('should ignore non existing API methods', () => {
     const customObject = {}
-    I18n({
+    new I18n({
       locales: ['en', 'de'],
       register: customObject,
       api: {
@@ -45,7 +44,7 @@ describe('configure api', () => {
 
   it('should not expose the actual API methods', () => {
     const customObject = {}
-    I18n({
+    new I18n({
       locales: ['en', 'de'],
       register: customObject,
       api: {
@@ -58,7 +57,7 @@ describe('configure api', () => {
   it('should escape res -> locals -> res recursion', () => {
     const customObject = {}
     customObject.locals = { res: customObject }
-    I18n({
+    new I18n({
       locales: ['en', 'de'],
       register: customObject,
       api: {
@@ -67,5 +66,32 @@ describe('configure api', () => {
     })
     should.equal(typeof customObject.t, 'function')
     should.equal(typeof customObject.locals.t, 'function')
+  })
+
+  it('should reset api aliases on reconfigure', () => {
+    const i18n = new I18n({ locales: ['en', 'de'], directory: './locales' })
+    const customObject = {}
+    const defaultObject = {}
+
+    i18n.configure({
+      locales: ['en', 'de'],
+      directory: './locales',
+      register: customObject,
+      api: {
+        __: 't'
+      }
+    })
+
+    should.equal(typeof customObject.t, 'function')
+    should.equal(typeof customObject.__, 'undefined')
+
+    i18n.configure({
+      locales: ['en', 'de'],
+      directory: './locales',
+      register: defaultObject
+    })
+
+    should.equal(typeof defaultObject.__, 'function')
+    should.equal(typeof defaultObject.t, 'undefined')
   })
 })

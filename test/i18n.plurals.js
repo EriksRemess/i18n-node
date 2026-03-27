@@ -1,5 +1,4 @@
-const i18n = require('..')
-const should = require('should')
+import i18n from '#i18n'
 
 // reserve a "private" scope
 const pluralTest = {}

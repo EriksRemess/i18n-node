@@ -4,8 +4,7 @@
  * req.setLocale("locale") sets defaultLanguage when req.locals is not defined #166
  *
  */
-const i18n = require('..')
-require('should')
+import i18n from '#i18n'
 
 describe('Locale switching should not modify defaultLocale on unsupported languages', () => {
   let req
