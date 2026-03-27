@@ -17,6 +17,16 @@ const testApi = (instance) => {
 }
 
 describe('exported constructor', () => {
+  it('should keep public api methods off the prototype', () => {
+    const instance = new I18n()
+
+    should.deepEqual(Object.getOwnPropertyNames(I18n.prototype), ['constructor'])
+    should.equal(Object.hasOwn(instance, '__'), true)
+    should.equal(Object.hasOwn(instance, 'setLocale'), true)
+    should.equal(instance.__ === I18n.prototype.__, false)
+    should.equal(instance.setLocale === I18n.prototype.setLocale, false)
+  })
+
   it('should setup independend instances', () => {
     const one = new I18n()
     const two = new I18n()

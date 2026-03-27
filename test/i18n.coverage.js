@@ -119,6 +119,70 @@ describe('coverage branches', () => {
     })
   })
 
+  describe('slow-path translation branches', () => {
+    it('should unwrap plural objects from object-style __() calls', () => {
+      const instance = new I18n({
+        staticCatalog: {
+          en: {
+            '%s cat': {
+              one: '%s cat',
+              other: '%s cats'
+            }
+          }
+        },
+        defaultLocale: 'en'
+      })
+
+      instance.__({ phrase: '%s cat', locale: 'en' }, 'one').should.equal('one cat')
+    })
+
+    it('should unwrap other-only objects from object-style __() calls', () => {
+      const instance = new I18n({
+        staticCatalog: {
+          en: {
+            fallbackOnly: {
+              other: 'fallback value'
+            }
+          }
+        },
+        defaultLocale: 'en'
+      })
+
+      instance
+        .__({ phrase: 'fallbackOnly', locale: 'en' }, 'ignored')
+        .should.equal('fallback value')
+    })
+  })
+
+  describe('bounded caches', () => {
+    it('should evict old message and object-path cache entries', () => {
+      const instance = new I18n({
+        defaultLocale: 'en',
+        objectNotation: true,
+        staticCatalog: {
+          en: Object.fromEntries(
+            Array.from({ length: 1100 }, (_, index) => [
+              `group${index}`,
+              { value: `value-${index}` }
+            ])
+          )
+        }
+      })
+
+      for (let index = 0; index < 1100; index += 1) {
+        instance.__(`group${index}.value`)
+      }
+
+      instance.__('plain message')
+      instance.__('another plain message')
+      instance.__('third plain message')
+
+      instance.__('group0.value').should.equal('value-0')
+      instance.__('group1099.value').should.equal('value-1099')
+      instance.__('plain message').should.equal('plain message')
+    })
+  })
+
   describe('read and write errors', () => {
     it('should warn and fall back to default locale when a locale cannot be read', () => {
       const directory = makeTempDir()
