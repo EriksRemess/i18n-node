@@ -36,7 +36,6 @@
     "lib": "."
   },
   "dependencies": {
-    "@messageformat/core": "^3.4.0",
     "make-plural": "^8.1.0",
     "math-interval-parser": "^2.0.1",
     "mustache": "^4.2.0"

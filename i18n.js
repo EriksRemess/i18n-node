@@ -6,7 +6,6 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
-import Messageformat from '@messageformat/core'
 import * as MakePlural from 'make-plural'
 import parseIntervalModule from 'math-interval-parser'
 import Mustache from 'mustache'
@@ -25,7 +24,6 @@ const DEFAULT_API = Object.freeze({
   __n: '__n',
   __l: '__l',
   __h: '__h',
-  __mf: '__mf',
   getLocale: 'getLocale',
   setLocale: 'setLocale',
   getCatalog: 'getCatalog',
@@ -66,7 +64,6 @@ const setBoundedCache = (cache, key, value) => {
 class I18n {
   version = pkgVersion
 
-  #messageformatInstanceForLocale = {}
   #pluralsForLocale = {}
   #locales = {}
   #api = cloneApi()
@@ -289,47 +286,6 @@ class I18n {
       }
 
       return i18n.#postProcess(msg, namedValues, args)
-    })(this)
-
-  __mf = ((i18n) =>
-    function i18nMessageformat(phrase) {
-      let msg
-      let mf
-      let f
-      let targetLocale = i18n.#defaultLocale
-      const [namedValues, args] = i18n.#parseArgv(arguments)
-
-      if (typeof phrase === 'object') {
-        if (
-          typeof phrase.locale === 'string' &&
-          typeof phrase.phrase === 'string'
-        ) {
-          msg = phrase.phrase
-          targetLocale = phrase.locale
-        }
-      } else {
-        msg = phrase
-        targetLocale = i18n.#getLocaleFromObject(this)
-      }
-
-      msg = i18n.#translate(targetLocale, msg)
-
-      if (i18n.#messageformatInstanceForLocale[targetLocale]) {
-        mf = i18n.#messageformatInstanceForLocale[targetLocale]
-      } else {
-        mf = new Messageformat(targetLocale)
-        mf.compiledFunctions = {}
-        i18n.#messageformatInstanceForLocale[targetLocale] = mf
-      }
-
-      if (mf.compiledFunctions[msg]) {
-        f = mf.compiledFunctions[msg]
-      } else {
-        f = mf.compile(msg)
-        mf.compiledFunctions[msg] = f
-      }
-
-      return i18n.#postProcess(f(namedValues), namedValues, args)
     })(this)
 
   __l = ((i18n) =>
@@ -606,7 +562,6 @@ class I18n {
       this.#autoReloadWatcher = undefined
     }
 
-    this.#messageformatInstanceForLocale = {}
     this.#pluralsForLocale = {}
     this.#locales = {}
     this.#api = cloneApi()

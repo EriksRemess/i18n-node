@@ -15,9 +15,7 @@ const staticCatalog = {
     greeting: {
       formal: 'Hello',
       informal: 'Hi'
-    },
-    mftest:
-      'In {lang} there {NUM, plural, one{is one entry} other{are # entries}}'
+    }
   }
 }
 
@@ -126,15 +124,6 @@ const buildBenchmarks = ({ label, I18n }) => {
       setup: createObjectNotationInstance,
       fn(instance) {
         instance.__('greeting.formal')
-      },
-      warmupIterations: DEFAULT_WARMUP_ITERATIONS,
-      durationMs: DEFAULT_BENCH_DURATION_MS
-    }),
-    benchmark({
-      name: `${label} __mf('mftest')`,
-      setup: createFlatInstance,
-      fn(instance, iteration) {
-        instance.__mf('mftest', { lang: 'en', NUM: iteration % 5 })
       },
       warmupIterations: DEFAULT_WARMUP_ITERATIONS,
       durationMs: DEFAULT_BENCH_DURATION_MS

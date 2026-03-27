@@ -4,7 +4,6 @@ const testApi = (instance) => {
   should.equal(typeof instance.configure, 'function')
   should.equal(typeof instance.init, 'function')
   should.equal(typeof instance.__, 'function')
-  should.equal(typeof instance.__mf, 'function')
   should.equal(typeof instance.__l, 'function')
   should.equal(typeof instance.__h, 'function')
   should.equal(typeof instance.__n, 'function')

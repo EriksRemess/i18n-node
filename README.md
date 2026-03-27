@@ -571,69 +571,6 @@ __n('%s cat', 21) // --> 21 кошка
 
 > __Note__ i18n.__n() will add a blueprint ("one, other" or "one, few, other" for example) for each locale to your json on updateFiles in a future version.
 
-### i18n.__mf()
-
-Supports the advanced MessageFormat as provided by excellent [messageformat module](https://www.npmjs.com/package/@messageformat/core). You should definetly head over to [messageformat.github.io](http://messageformat.github.io/messageformat/api/core/) for a guide to MessageFormat. i18n takes care of `new MessageFormat('en').compile(msg);` with the current `msg` loaded from it's json files and cache that complied fn in memory. So in short you might use it similar to `__()` plus extra object to accomplish MessageFormat's formatting. Ok, some examples:
-
-```js
-// assume res is set to german
-res.setLocale('de')
-
-// start simple
-res.__mf('Hello') // --> Hallo
-
-// can replace too
-res.__mf('Hello {name}', { name: 'Marcus' }) // --> Hallo Marcus
-
-// and combines with sprintf
-res.__mf('Hello {name}, how was your %s?', 'test', { name: 'Marcus' }) // --> Hallo Marcus, wie war dein test?
-
-// now check out a plural rule
-res.__mf('{N, selectordinal, one{# cat} two{# cats} few{# cats} other{# cats}}', {
-  N: 1
-})
-
-// results for "1" in   (all use "one")
-// en --> 1 cat
-// de --> 1 Katze
-// fr --> 1 chat
-// ru --> 1 кошка       ru uses "__one__" when ending on "1"
-
-// results for "0" in   (most use "others")
-// en --> 0 cats
-// de --> 0 Katzen
-// fr --> 0 chat        fr uses "__one__" for zero
-// ru --> 0 кошек       ru uses "__many__"
-
-// results for "2" in   (most use "others")
-// en --> 2 cat
-// de --> 2 Katze
-// fr --> 2 chat
-// ru --> 2 кошки       ru uses "__few__" when ending on "1"
-
-// results for "5" in   (most use "others")
-// en --> 5 cat
-// de --> 5 Katze
-// fr --> 5 chat
-// ru --> 5 кошек       ru uses "__many__"
-
-// results for "21" in  (most use "others")
-// en --> 21 cat
-// de --> 21 Katze
-// fr --> 21 chat
-// ru --> 21 кошка       ru uses "__one__" when ending on "1"
-```
-
-Take a look at [Mozilla](https://developer.mozilla.org/en-US/docs/Mozilla/Localization/Localization_and_Plurals) to quickly get an idea of what pluralization has to deal with. With `__mf()` you get a very powerful tool, but you need to handle it correctly.
-
-But MessageFormat can handle more! You get ability to process:
-
-* Simple Variable Replacement (similar to mustache placeholders)
-* SelectFormat (ie. switch msg based on gender)
-* [PluralFormat](http://messageformat.github.io/messageformat/guide/#pluralformat) (see above and [ranges](#ranged-interval-support))
-
-Combinations of those give superpower, but should get tested well (contribute your use case, please!) on integration.
-
 ### i18n.__l()
 
 Returns a list of translations for a given phrase in each language.

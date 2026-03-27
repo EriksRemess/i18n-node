@@ -171,19 +171,4 @@ describe('when i18n gets a new phrase', () => {
     done()
   })
 
-  it('should add translations with messageformat by use of __mf()', (done) => {
-    let msg = 'In {language} there {N, plural,'
-    msg += '=0{are zero for #}'
-    msg += 'one {is one for #}'
-    msg += 'other{others for #}}'
-
-    // this should just add that string
-    TestScope.__mf(msg, { N: 1 })
-
-    should.deepEqual(getJson('en')[msg], msg)
-    should.deepEqual(getJson('de')[msg], msg)
-    should.deepEqual(getJson('fr')[msg], msg)
-    should.deepEqual(getJson('ru')[msg], msg)
-    done()
-  })
 })
