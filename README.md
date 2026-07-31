@@ -1,4 +1,4 @@
-# i18n
+# @eriksremess/i18n
 
 Lightweight simple translation module with dynamic JSON storage. Supports plain vanilla Node.js apps and should work with any framework (like _Express_, _restify_ and probably more) that exposes an `app.use()` method passing in `res` and `req` objects.
 Uses common __('...') syntax in app and templates.
@@ -6,16 +6,20 @@ Stores language files in json files compatible to [webtranslateit](http://webtra
 Adds new strings on-the-fly when first used in your app.
 No extra parsing needed.
 
-[![NPM version][npm-image]][npm-url]
-![npm](https://img.shields.io/npm/dw/i18n)
+[![Package version][package-image]][package-url]
 
 <p align="center">
 <a href="https://www.buymeacoffee.com/mashpie" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/default-orange.png" alt="Buy Me A Coffee" style="height: 51px !important;width: 217px !important; border-radius: 0.5rem !important;" width="217" height="51"></a><br>
 </p>
 
 ## Install
+
+Authenticate with GitHub Packages using a classic personal access token with
+the `read:packages` scope, then install the package:
+
 ```sh
-npm install i18n --save
+npm login --scope=@eriksremess --auth-type=legacy --registry=https://npm.pkg.github.com
+npm install @eriksremess/i18n --save
 ```
 
 ## Synopsis
@@ -23,7 +27,7 @@ npm install i18n --save
 ```js
 import http from 'node:http'
 import path from 'node:path'
-import { I18n } from 'i18n'
+import { I18n } from '@eriksremess/i18n'
 
 const i18n = new I18n({
   locales: ['en', 'de'],
@@ -59,7 +63,7 @@ Minimal example, just setup two locales and a project specific directory.
  * import I18n with capital I as constructor
  */
 import path from 'node:path'
-import { I18n } from 'i18n'
+import { I18n } from '@eriksremess/i18n'
 
 /**
  * create a new instance with it's configuration
@@ -77,7 +81,7 @@ Alternatively split creation and configuration, useful when split up into differ
  * import I18n with capital I as constructor
  */
 import path from 'node:path'
-import { I18n } from 'i18n'
+import { I18n } from '@eriksremess/i18n'
 
 /**
  * create a new instance
@@ -100,7 +104,7 @@ Same Minimal example, just setup two locales and a project specific directory.
 
 ```js
 import path from 'node:path'
-import i18n from 'i18n'
+import i18n from '@eriksremess/i18n'
 
 /**
  * configure shared state
@@ -116,7 +120,7 @@ Now you are ready to use a global `i18n.__('Hello')`.
 Require `i18n`in another file reuses same configuration and shares state:
 
 ```js
-import i18n from 'i18n'
+import i18n from '@eriksremess/i18n'
 
 export default () => {
   console.log(i18n.__('Hello'))
@@ -1083,5 +1087,5 @@ npm test
 
 For current release notes see [GitHub Release Notes](https://github.com/mashpie/i18n-node/releases). Changes until 0.8.3 are filed as [Changelog Summary](https://github.com/mashpie/i18n-node/blob/master/CHANGELOG.md).
 
-[npm-image]: https://badge.fury.io/js/i18n.svg
-[npm-url]: https://www.npmjs.com/package/i18n
+[package-image]: https://img.shields.io/github/package-json/v/EriksRemess/i18n-node
+[package-url]: https://github.com/EriksRemess/i18n-node/pkgs/npm/i18n

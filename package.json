@@ -1,11 +1,11 @@
 {
-  "name": "i18n",
+  "name": "@eriksremess/i18n",
   "description": "lightweight translation module with dynamic json storage",
-  "version": "0.15.3",
-  "homepage": "https://github.com/mashpie/i18n-node",
+  "version": "0.15.4",
+  "homepage": "https://github.com/EriksRemess/i18n-node#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/mashpie/i18n-node.git"
+    "url": "git+https://github.com/EriksRemess/i18n-node.git"
   },
   "author": "Marcus Spiegel <marcus.spiegel@gmail.com>",
   "funding": {
@@ -27,6 +27,9 @@
     "index.js",
     "lib"
   ],
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com/"
+  },
   "keywords": [
     "template",
     "i18n",
@@ -42,12 +45,12 @@
   },
   "devDependencies": {
     "cookie-parser": "^1.4.7",
-    "eslint": "^10.1.0",
+    "eslint": "^10.8.0",
     "express": "^5.2.1",
-    "yaml": "^2.8.3"
+    "yaml": "^2.9.0"
   },
   "engines": {
-    "node": ">=24"
+    "node": ">=26"
   },
   "scripts": {
     "bench": "npm --prefix ./bench run bench",
@@ -55,6 +58,5 @@
     "test": "node --test --test-concurrency=1 --import '#test-setup' ./test/i18n*.js",
     "test:coverage": "node --experimental-test-coverage --test --test-concurrency=1 --import '#test-setup' ./test/i18n*.js"
   },
-  "license": "MIT",
-  "packageManager": "npm@11.12.1"
+  "license": "MIT"
 }
