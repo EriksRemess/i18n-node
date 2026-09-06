@@ -295,7 +295,7 @@ describe('coverage branches', () => {
       }
     })
 
-    it('should back up unreadable locale files before reinitializing them', () => {
+    it('should back up unreadable locale files before replacing them', () => {
       const directory = makeTempDir()
       const originalReadFileSync = fs.readFileSync
       const target = path.join(directory, 'en.json')
@@ -311,11 +311,12 @@ describe('coverage branches', () => {
           return originalReadFileSync(filepath, ...args)
         }
 
-        new I18n({
+        const instance = new I18n({
           locales: ['en'],
           directory
         })
 
+        instance.__('Hello').should.equal('Hello')
         fs.existsSync(target).should.equal(true)
         fs.existsSync(`${target}.invalid`).should.equal(true)
       } finally {

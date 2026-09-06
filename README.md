@@ -212,6 +212,10 @@ i18n.configure({
 
 **Since 0.7.0** you may even omit the `locales` setting and just configure a `directory`. `i18n` will read all files within that directory and detect all given locales by their filenames.
 
+Locale names must be nonempty and contain no path separators or null bytes. The names `.`, `..`, `prototype`, and properties of `Object.prototype` such as `__proto__` and `constructor` are reserved. Invalid names passed to configuration, `addLocale()`, or an explicit translation locale throw a `TypeError`. Request locale selection and `setLocale()` use the default locale for invalid names.
+
+Calling `configure()` again resets the instance and the objects in `register` to the new `defaultLocale`. Unreadable or malformed catalogs use configured fallbacks, as do missing catalog files when `updateFiles` is false. If the default catalog is unavailable, translations remain usable in memory. Before replacing a failed catalog when writes are enabled, its original contents are saved as `<filename>.invalid`, with numbered suffixes such as `.invalid.1` when backups already exist. If a reload fails, the last valid catalog stays available.
+
 ```js
 import path from 'node:path'
 

@@ -25,13 +25,21 @@ export default [
         global: 'readonly',
         globalThis: 'readonly',
         process: 'readonly',
-        setTimeout: 'readonly'
+        setTimeout: 'readonly',
+        URL: 'readonly'
       }
     },
     rules: {
-      'generator-star-spacing': 'off',
-      'no-debugger': process.env.NODE_ENV === 'production' ? 'error' : 'off',
-      'space-before-function-paren': 'off'
+      'no-undef': 'error',
+      'no-unreachable': 'error',
+      'no-constant-condition': 'error',
+      'no-dupe-args': 'error',
+      'no-dupe-keys': 'error',
+      'no-dupe-class-members': 'error',
+      'no-func-assign': 'error',
+      'no-import-assign': 'error',
+      'no-debugger': 'error',
+      'valid-typeof': 'error'
     }
   },
   {
