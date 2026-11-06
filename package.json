@@ -7,19 +7,18 @@
     "type": "git",
     "url": "git+https://github.com/EriksRemess/i18n-node.git"
   },
-  "author": "Marcus Spiegel <marcus.spiegel@gmail.com>",
-  "funding": {
-    "url": "https://github.com/sponsors/mashpie"
-  },
+  "author": "Ēriks Remess <eriks@remess.lv>",
+  "contributors": [
+    "Marcus Spiegel <marcus.spiegel@gmail.com>"
+  ],
   "type": "module",
   "exports": {
     ".": "./index.js"
   },
   "imports": {
-    "#debug": "./lib/debug.js",
+    "#lib/*": "./lib/*.js",
     "#i18n": "./index.js",
     "#package": "./package.json",
-    "#printf": "./lib/printf.js",
     "#test-setup": "./test/node-test-setup.js"
   },
   "files": [
@@ -39,15 +38,11 @@
     "lib": "."
   },
   "dependencies": {
-    "make-plural": "^8.1.0",
-    "math-interval-parser": "^2.0.1",
-    "mustache": "^4.2.0"
+    "make-plural": "^8.2.0"
   },
   "devDependencies": {
-    "cookie-parser": "^1.4.7",
-    "eslint": "^10.10.0",
-    "express": "^5.2.1",
-    "yaml": "^2.9.0"
+    "eslint": "^10.14.0",
+    "yaml": "^2.9.1"
   },
   "engines": {
     "node": ">=26"

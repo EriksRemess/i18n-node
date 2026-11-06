@@ -1,13 +1,14 @@
+# Dependencies, including the separate benchmark installation.
 node_modules/
-testlocales/
-coverage/
+
+# Optional coverage output and locally packed npm archives.
+/coverage/
+/*.tgz
+npm-debug.log*
+
+# Generated catalog still present in older working trees.
+/locales_traversal/is/not/possible/en.json
+
+# Editor and platform files.
 .idea/
 .DS_Store
-/npm-debug.log
-/i18n-cov.js
-/coverage.html
-defaultlocales
-localestowrite
-localesmakeplural
-/locales_traversal/is/not/possible/en.json
-/.nyc_output

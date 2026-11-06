@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import createDebug from '#debug'
+import createDebug from '#lib/debug'
 import i18n, { I18n } from '#i18n'
 
 const makeTempDir = () =>

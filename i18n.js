@@ -6,15 +6,15 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
+import { URLSearchParams } from 'node:url'
 import * as MakePlural from 'make-plural'
-import parseIntervalModule from 'math-interval-parser'
-import Mustache from 'mustache'
+import { parseIntervalPrefix } from '#lib/math-interval-parser'
+import renderMustache from '#lib/mustache'
 import pkg from '#package' with { type: 'json' }
-import createDebug from '#debug'
-import { printf } from '#printf'
+import createDebug from '#lib/debug'
+import { printf } from '#lib/printf'
 
 const pkgVersion = pkg.version
-const parseInterval = parseIntervalModule.default
 const debug = createDebug('i18n:debug')
 const warn = createDebug('i18n:warn')
 const error = createDebug('i18n:error')
@@ -41,6 +41,11 @@ const MESSAGE_FEATURE_INTERVAL = 1
 const MESSAGE_FEATURE_PERCENT = 2
 const MESSAGE_FEATURE_MUSTACHE = 4
 const CACHE_LIMIT = 1024
+const PLURAL_RULES = new Map(
+  Object.entries(MakePlural).map(([locale, resolver]) => [
+    locale.toLowerCase().replaceAll('_', '-'), resolver
+  ])
+)
 const isValidLocale = (locale) =>
   typeof locale === 'string' &&
   locale.length > 0 &&
@@ -64,8 +69,6 @@ const cloneMustacheConfig = () => ({
   tags: [...DEFAULT_MUSTACHE_CONFIG.tags]
 })
 
-// utils
-const escapeRegExp = (string) => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') // $& means the whole matched string
 const setBoundedCache = (cache, key, value) => {
   if (cache.size >= CACHE_LIMIT) {
     const firstKey = cache.keys().next().value
@@ -83,14 +86,15 @@ class I18n {
 
   #pluralsForLocale = {}
   #locales = {}
+  #staticCatalog = false
   #failedCatalogs = new Map()
   #api = cloneApi()
   #mustacheConfig = cloneMustacheConfig()
-  #mustacheRegex = /{{.*}}/
   #mustacheStart = '{{'
   #mustacheEnd = '}}'
   #autoReload = false
   #autoReloadWatcher
+  #watchedLocales = new Set()
   #cookiename = null
   #languageHeaderName = 'accept-language'
   #defaultLocale = 'en'
@@ -115,12 +119,12 @@ class I18n {
   #messageFeatures = new Map()
   #objectPathSegments = new Map()
 
-  constructor(_OPTS = false) {
+  constructor(options = false) {
     this.#missingKeyFn = this.#missingKey
-    this.#updateMustacheRegex()
+    this.#updateMustacheTags()
 
-    if (_OPTS) {
-      this.configure(_OPTS)
+    if (options) {
+      this.configure(options)
     }
   }
 
@@ -148,7 +152,7 @@ class I18n {
         typeof opt.directory === 'string' ? opt.directory : DEFAULT_DIRECTORY
       i18n.#directoryPermissions =
         typeof opt.directoryPermissions === 'string'
-          ? parseInt(opt.directoryPermissions, 8)
+          ? Number.parseInt(opt.directoryPermissions, 8)
           : null
       i18n.#updateFiles =
         typeof opt.updateFiles === 'boolean' ? opt.updateFiles : true
@@ -170,7 +174,9 @@ class I18n {
         typeof opt.autoReload === 'boolean' ? opt.autoReload : false
       i18n.#objectNotation =
         typeof opt.objectNotation !== 'undefined' ? opt.objectNotation : false
-      if (i18n.#objectNotation === true) i18n.#objectNotation = '.'
+      if (i18n.#objectNotation === true) {
+        i18n.#objectNotation = '.'
+      }
       i18n.#fallbacks = typeof opt.fallbacks === 'object' ? opt.fallbacks : {}
       i18n.#logDebugFn =
         typeof opt.logDebugFn === 'function' ? opt.logDebugFn : debug
@@ -187,6 +193,7 @@ class I18n {
           ? opt.missingKeyFn
           : i18n.#missingKey
       i18n.#parser =
+        opt.parser !== null &&
         typeof opt.parser === 'object' &&
         typeof opt.parser.parse === 'function' &&
         typeof opt.parser.stringify === 'function'
@@ -195,19 +202,20 @@ class I18n {
 
       if (opt.mustacheConfig) {
         if (Array.isArray(opt.mustacheConfig.tags)) {
-          i18n.#mustacheConfig.tags = opt.mustacheConfig.tags
+          i18n.#mustacheConfig.tags = [...opt.mustacheConfig.tags]
         }
         if (opt.mustacheConfig.disable === true) {
           i18n.#mustacheConfig.disable = true
         }
       }
-      i18n.#updateMustacheRegex()
+      i18n.#updateMustacheTags()
 
       const locales = opt.staticCatalog
         ? Object.keys(opt.staticCatalog)
         : opt.locales || i18n.#guessLocales(i18n.#directory)
 
       if (opt.staticCatalog) {
+        i18n.#staticCatalog = true
         i18n.#updateFiles = false
         i18n.#autoReload = false
         i18n.#syncFiles = false
@@ -234,13 +242,14 @@ class I18n {
         }
 
         if (i18n.#autoReload) {
+          i18n.#watchedLocales = new Set(locales)
           i18n.#autoReloadWatcher = fs.watch(
             i18n.#directory,
             { persistent: false },
             (event, filename) => {
               const localeFromFile = i18n.#guessLocaleFromFile(filename)
 
-              if (localeFromFile && locales.indexOf(localeFromFile) > -1) {
+              if (localeFromFile && i18n.#watchedLocales.has(localeFromFile)) {
                 i18n.#logDebug('Auto reloading locale file "' + filename + '".')
                 i18n.#read(localeFromFile)
               }
@@ -283,39 +292,38 @@ class I18n {
 
   __ = ((i18n) =>
     function i18nTranslate(phrase) {
-      if (typeof phrase === 'string' && arguments.length === 1) {
-        let msg = i18n.#translate(i18n.#getLocaleFromObject(this), phrase)
-
-        if (typeof msg === 'object' && msg.one) {
-          msg = msg.one
-        }
-
-        if (typeof msg === 'object' && msg.other) {
-          msg = msg.other
-        }
-
-        return i18n.#postProcess(msg, EMPTY_OBJECT, EMPTY_ARRAY)
-      }
-
       let msg
-      const [namedValues, args] = i18n.#parseArgv(arguments)
+      let namedValues = EMPTY_OBJECT
+      let args = EMPTY_ARRAY
 
-      if (typeof phrase === 'object') {
-        if (
-          typeof phrase.locale === 'string' &&
-          typeof phrase.phrase === 'string'
-        ) {
-          msg = i18n.#translate(phrase.locale, phrase.phrase)
-        }
-      } else {
+      if (
+        typeof phrase === 'string' &&
+        (arguments.length === 1 ||
+          (arguments.length === 2 && i18n.#argsEndWithNamedObject(arguments)))
+      ) {
+        namedValues = arguments[1] ?? EMPTY_OBJECT
         msg = i18n.#translate(i18n.#getLocaleFromObject(this), phrase)
+      } else {
+        const parsed = i18n.#parseArgv(arguments)
+        namedValues = parsed[0]
+        args = parsed[1]
+        if (typeof phrase === 'object') {
+          if (
+            typeof phrase.locale === 'string' &&
+            typeof phrase.phrase === 'string'
+          ) {
+            msg = i18n.#translate(phrase.locale, phrase.phrase)
+          }
+        } else {
+          msg = i18n.#translate(i18n.#getLocaleFromObject(this), phrase)
+        }
       }
 
-      if (typeof msg === 'object' && msg.one) {
+      if (msg && typeof msg === 'object' && msg.one != null) {
         msg = msg.one
       }
 
-      if (typeof msg === 'object' && msg.other) {
+      if (msg && typeof msg === 'object' && msg.other != null) {
         msg = msg.other
       }
 
@@ -394,18 +402,19 @@ class I18n {
             singular.plural
           )
         }
-        args.unshift(count)
+        const hasInlineCount = typeof singular.count === 'number' ||
+          typeof singular.count === 'string'
+        args = Array.prototype.slice.call(
+          arguments, hasInlineCount ? 1 : 2,
+          i18n.#argsEndWithNamedObject(arguments) ? -1 : undefined
+        )
 
         if (typeof plural === 'number' || Number(plural) + '' === plural) {
           count = plural
         }
 
-        if (
-          typeof singular.count === 'number' ||
-          typeof singular.count === 'string'
-        ) {
+        if (hasInlineCount) {
           count = singular.count
-          args.unshift(plural)
         }
       } else {
         if (typeof plural === 'number' || Number(plural) + '' === plural) {
@@ -426,7 +435,9 @@ class I18n {
         )
       }
 
-      if (count === null) count = namedValues.count
+      if (count === null) {
+        count = namedValues.count
+      }
       count = Number(count)
 
       if (msg && typeof msg === 'object') {
@@ -563,11 +574,14 @@ class I18n {
   addLocale = ((i18n) =>
     function i18nAddLocale(locale) {
       i18n.#read(locale)
+      i18n.#watchedLocales.add(locale)
     })(this)
 
   removeLocale = ((i18n) =>
     function i18nRemoveLocale(locale) {
       delete i18n.#locales[locale]
+      i18n.#watchedLocales.delete(locale)
+      i18n.#failedCatalogs.delete(locale)
     })(this)
 
   #localesKeys = () => Object.keys(this.#locales)
@@ -578,8 +592,12 @@ class I18n {
   #selectPlural = (message, locale, count) => {
     let resolver = this.#pluralsForLocale[locale]
     if (!resolver) {
-      const language = locale.toLowerCase().split(/[_-\s]+/)[0]
-      resolver = MakePlural[language] || MakePlural.en
+      const parts = locale.toLowerCase().split(/[_-\s]+/)
+      while (parts.length && !resolver) {
+        resolver = PLURAL_RULES.get(parts.join('-'))
+        parts.pop()
+      }
+      resolver ||= MakePlural.en
       this.#pluralsForLocale[locale] = resolver
     }
     return message[resolver(count)] ?? message.other
@@ -594,7 +612,9 @@ class I18n {
 
     this.#pluralsForLocale = {}
     this.#locales = {}
+    this.#staticCatalog = false
     this.#failedCatalogs.clear()
+    this.#watchedLocales.clear()
     this.#api = cloneApi()
     this.#mustacheConfig = cloneMustacheConfig()
     this.#autoReload = false
@@ -621,17 +641,19 @@ class I18n {
     this.#parser = JSON
     this.#messageFeatures.clear()
     this.#objectPathSegments.clear()
-    this.#updateMustacheRegex()
+    this.#updateMustacheTags()
   }
 
-  #updateMustacheRegex = () => {
+  #updateMustacheTags = () => {
     const [start, end] = this.#mustacheConfig.tags
+    if (this.#mustacheConfig.tags.length !== 2 ||
+        typeof start !== 'string' || !start ||
+        typeof end !== 'string' || !end) {
+      throw new TypeError('Mustache tags must be two nonempty strings')
+    }
     this.#mustacheStart = start
     this.#mustacheEnd = end
     this.#messageFeatures.clear()
-    this.#mustacheRegex = new RegExp(
-      escapeRegExp(start) + '.*' + escapeRegExp(end)
-    )
   }
 
   #postProcess = (msg, namedValues, args, count) => {
@@ -640,27 +662,27 @@ class I18n {
     }
 
     const features = this.#getMessageFeatures(msg)
-    if (features & MESSAGE_FEATURE_INTERVAL) {
-      msg = this.#parsePluralInterval(msg, count)
+    if (features.flags & MESSAGE_FEATURE_INTERVAL) {
+      msg = this.#parsePluralInterval(msg, count, features)
     }
 
     if (
       typeof count === 'number' &&
-      (features & MESSAGE_FEATURE_PERCENT) !== 0
+      (features.flags & MESSAGE_FEATURE_PERCENT) !== 0
     ) {
-      msg = printf(msg, Number(count))
+      msg = printf(msg, count)
     }
 
     if (
       !this.#mustacheConfig.disable &&
-      (features & MESSAGE_FEATURE_MUSTACHE) !== 0
+      (features.flags & MESSAGE_FEATURE_MUSTACHE) !== 0
     ) {
-      msg = Mustache.render(msg, namedValues, {}, this.#mustacheConfig.tags)
+      msg = renderMustache(msg, namedValues, this.#mustacheConfig.tags)
     }
 
     if (
       args.length > 0 &&
-      (features & MESSAGE_FEATURE_PERCENT) !== 0
+      (features.flags & MESSAGE_FEATURE_PERCENT) !== 0
     ) {
       msg = printf(msg, ...args)
     }
@@ -674,18 +696,18 @@ class I18n {
       return features
     }
 
-    features = 0
+    features = { flags: 0, intervals: undefined }
     if (msg.includes('|')) {
-      features |= MESSAGE_FEATURE_INTERVAL
+      features.flags |= MESSAGE_FEATURE_INTERVAL
     }
     if (msg.includes('%')) {
-      features |= MESSAGE_FEATURE_PERCENT
+      features.flags |= MESSAGE_FEATURE_PERCENT
     }
     if (
       msg.includes(this.#mustacheStart) &&
       msg.includes(this.#mustacheEnd)
     ) {
-      features |= MESSAGE_FEATURE_MUSTACHE
+      features.flags |= MESSAGE_FEATURE_MUSTACHE
     }
 
     setBoundedCache(this.#messageFeatures, msg, features)
@@ -698,18 +720,14 @@ class I18n {
     typeof args[args.length - 1] === 'object'
 
   #parseArgv = (args) => {
-    let namedValues
-    let returnArgs
-
-    if (this.#argsEndWithNamedObject(args)) {
-      namedValues = args[args.length - 1]
-      returnArgs = Array.prototype.slice.call(args, 1, -1)
-    } else {
-      namedValues = {}
-      returnArgs = args.length >= 2 ? Array.prototype.slice.call(args, 1) : []
+    const hasNamedValues = this.#argsEndWithNamedObject(args)
+    const end = args.length - Number(hasNamedValues)
+    const namedValues = hasNamedValues ? args[end] : {}
+    const positional = []
+    for (let index = 1; index < end; index += 1) {
+      positional.push(args[index])
     }
-
-    return [namedValues, returnArgs]
+    return [namedValues, positional]
   }
 
   #applyAPIToObject = (object) => {
@@ -747,27 +765,32 @@ class I18n {
     const locales = []
 
     for (let i = entries.length - 1; i >= 0; i -= 1) {
-      if (entries[i].match(/^\./)) continue
+      if (entries[i].startsWith('.')) {
+        continue
+      }
       const localeFromFile = this.#guessLocaleFromFile(entries[i])
-      if (localeFromFile) locales.push(localeFromFile)
+      if (localeFromFile) {
+        locales.push(localeFromFile)
+      }
     }
 
     return locales.sort()
   }
 
   #guessLocaleFromFile = (filename) => {
-    const extensionRegex = new RegExp(this.#extension + '$', 'g')
-    const prefixRegex = new RegExp('^' + this.#prefix, 'g')
-
-    if (!filename) return false
-    if (this.#prefix && !filename.match(prefixRegex)) return false
-    if (this.#extension && !filename.match(extensionRegex)) return false
-    return filename.replace(this.#prefix, '').replace(extensionRegex, '')
+    const extension = this.#extension || '.json'
+    if (typeof filename !== 'string') {
+      return false
+    }
+    if (!filename.startsWith(this.#prefix) || !filename.endsWith(extension)) {
+      return false
+    }
+    return filename.slice(this.#prefix.length, -extension.length)
   }
 
   #extractQueryLanguage = (queryLanguage) => {
     if (Array.isArray(queryLanguage)) {
-      return queryLanguage.find((lang) => lang !== '' && lang)
+      return queryLanguage.find((lang) => typeof lang === 'string' && lang !== '')
     }
     return typeof queryLanguage === 'string' && queryLanguage
   }
@@ -796,11 +819,15 @@ class I18n {
           languageQueryParameter = request.query[this.#queryParameter]
         }
 
-        const urlAsString =
-          typeof request.url === 'string' ? request.url : request.url.toString()
-        const urlObj = new URL(urlAsString, 'http://localhost')
         if (languageQueryParameter === undefined) {
-          const queryParameters = urlObj.searchParams.getAll(this.#queryParameter)
+          const urlAsString =
+            typeof request.url === 'string' ? request.url : request.url.toString()
+          const queryIndex = urlAsString.indexOf('?')
+          const fragmentIndex = urlAsString.indexOf('#')
+          const query = queryIndex >= 0 && (fragmentIndex < 0 || queryIndex < fragmentIndex)
+            ? urlAsString.slice(queryIndex + 1, fragmentIndex < 0 ? undefined : fragmentIndex)
+            : ''
+          const queryParameters = new URLSearchParams(query).getAll(this.#queryParameter)
           languageQueryParameter =
             queryParameters.length <= 1 ? queryParameters[0] : queryParameters
         }
@@ -836,22 +863,29 @@ class I18n {
         let match
         let fallbackMatch
         let fallback
+        const processedLanguages = new Set()
+        const catalogNames = new Map(
+          this.#localesKeys().map((locale) => [locale.toLowerCase(), locale])
+        )
 
         for (let i = 0; i < acceptedLanguages.length; i += 1) {
           const lang = acceptedLanguages[i]
+          if (processedLanguages.has(lang)) {
+            continue
+          }
+          processedLanguages.add(lang)
           const localeParts = lang.split('-', 2)
           const parentLang = localeParts[0]
           const region = localeParts[1]
 
           const fallbackLang = this.#getFallback(lang, this.#fallbacks)
-          if (fallbackLang) {
+          if (fallbackLang && !processedLanguages.has(fallbackLang)) {
             fallback = fallbackLang
-            const acceptedLanguageIndex = acceptedLanguages.indexOf(lang)
             const fallbackIndex = acceptedLanguages.indexOf(fallback)
-            if (fallbackIndex > -1) {
+            if (fallbackIndex > i) {
               acceptedLanguages.splice(fallbackIndex, 1)
             }
-            acceptedLanguages.splice(acceptedLanguageIndex + 1, 0, fallback)
+            acceptedLanguages.splice(i + 1, 0, fallback)
           }
 
           const fallbackParentLang = this.#getFallback(
@@ -872,13 +906,13 @@ class I18n {
             regions.push(region.toLowerCase())
           }
 
-          if (!match && this.#hasLocale(lang)) {
-            match = lang
+          if (!match && catalogNames.has(lang.toLowerCase())) {
+            match = catalogNames.get(lang.toLowerCase())
             break
           }
 
-          if (!fallbackMatch && this.#hasLocale(parentLang)) {
-            fallbackMatch = parentLang
+          if (!fallbackMatch && catalogNames.has(parentLang.toLowerCase())) {
+            fallbackMatch = catalogNames.get(parentLang.toLowerCase())
           }
         }
 
@@ -892,23 +926,17 @@ class I18n {
   }
 
   #getAcceptedLanguagesFromHeader = (header) => {
-    const languages = header.split(',')
-    const preferences = {}
-
-    return languages
+    if (typeof header !== 'string') {
+      return []
+    }
+    return header.split(',')
       .map((item) => {
-        const preferenceParts = item.trim().split(';q=')
-        if (preferenceParts.length < 2) {
-          preferenceParts[1] = 1.0
-        } else {
-          const quality = parseFloat(preferenceParts[1])
-          preferenceParts[1] = quality || 0.0
-        }
-        preferences[preferenceParts[0]] = preferenceParts[1]
-        return preferenceParts[0]
+        const match = item.trim().match(/^([^;\s]+)(?:\s*;\s*q=(0(?:\.\d{0,3})?|1(?:\.0{0,3})?))?$/i)
+        return match ? { locale: match[1], quality: match[2] === undefined ? 1 : Number(match[2]) } : null
       })
-      .filter((lang) => preferences[lang] > 0)
-      .sort((a, b) => preferences[b] - preferences[a])
+      .filter((item) => item && item.quality > 0)
+      .sort((a, b) => b.quality - a.quality)
+      .map((item) => item.locale)
   }
 
   #getLocaleFromObject = (object) => {
@@ -922,50 +950,58 @@ class I18n {
     return locale
   }
 
-  #parsePluralInterval = (phrase, count) => {
-    let returnPhrase = phrase
-    const phrases = phrase.split(/\|/)
+  #parsePluralInterval = (phrase, count, features) => {
+    // Retain compiled rules only after a message is reused. One-off strings
+    // take the direct parsing path instead of allocating cached rule objects.
+    const cacheRules = features.intervals !== undefined
+    const rules = features.intervals ?? phrase.split('|')
+    features.intervals = cacheRules ? rules : null
+    let fallback
     let intervalRuleExists = false
 
-    phrases.some((part) => {
-      const matches = part.match(/^\s*([()[\]]+[\d,]+[()[\]]+)?\s*(.*)$/)
-
-      if (matches != null && matches[1]) {
-        intervalRuleExists = true
-        if (this.#matchInterval(count, matches[1]) === true) {
-          returnPhrase = matches[2]
-          return true
+    for (let index = 0; index < rules.length; index += 1) {
+      const rule = rules[index]
+      let part
+      let interval
+      let text
+      if (typeof rule === 'string') {
+        part = rule
+        const parsed = parseIntervalPrefix(part)
+        interval = parsed?.interval ?? null
+        text = parsed?.text
+        if (cacheRules) {
+          rules[index] = { part, interval, text }
         }
-      } else if (intervalRuleExists) {
-        returnPhrase = part
+      } else {
+        part = rule.part
+        interval = rule.interval
+        text = rule.text
       }
 
-      return false
-    })
-
-    return returnPhrase
-  }
-
-  #matchInterval = (number, interval) => {
-    interval = parseInterval(interval)
-    if (interval && typeof number === 'number') {
-      if (interval.from.value === number) {
-        return interval.from.included
+      if (interval) {
+        intervalRuleExists = true
+        if (typeof count !== 'number') {
+          continue
+        }
+        const { from, to } = interval
+        if (
+          (count > from.value || (count === from.value && from.included)) &&
+          (count < to.value || (count === to.value && to.included))
+        ) {
+          return text
+        }
+      } else {
+        fallback = part
       }
-      if (interval.to.value === number) {
-        return interval.to.included
-      }
-
-      return (
-        Math.min(interval.from.value, number) === interval.from.value &&
-        Math.max(interval.to.value, number) === interval.to.value
-      )
     }
-    return false
+
+    return intervalRuleExists && fallback !== undefined ? fallback : phrase
   }
 
   #resolveLocale = (locale) => {
-    if (this.#hasLocale(locale)) return locale
+    if (this.#hasLocale(locale)) {
+      return locale
+    }
 
     if (locale === undefined) {
       this.#logWarn(
@@ -976,7 +1012,9 @@ class I18n {
       locale = this.#defaultLocale
     }
 
-    if (!isValidLocale(locale)) throw new TypeError('Invalid locale: ' + locale)
+    if (!isValidLocale(locale)) {
+      throw new TypeError('Invalid locale: ' + locale)
+    }
 
     if (!this.#hasLocale(locale)) {
       locale = this.#getFallback(locale, this.#fallbacks) || locale
@@ -997,22 +1035,38 @@ class I18n {
 
       locale = this.#defaultLocale
       if (!this.#hasLocale(locale)) {
-        if (!this.#failedCatalogs.has(locale)) this.#read(locale)
-        if (!this.#hasLocale(locale)) this.#locales[locale] = {}
+        if (!this.#failedCatalogs.has(locale)) {
+          this.#read(locale)
+        }
+        if (!this.#hasLocale(locale)) {
+          this.#locales[locale] = {}
+        }
       }
     }
 
     return locale
   }
 
-  #translate = (locale, singular, plural, skipSyncToAllFiles) => {
-    if (!this.#hasLocale(locale)) locale = this.#resolveLocale(locale)
+  #getRetryLocale = (locale, skipRetry) => {
+    if (skipRetry || !this.#retryInDefaultLocale || locale === this.#defaultLocale) {
+      return undefined
+    }
+    const retryLocale = this.#resolveLocale(this.#defaultLocale)
+    return retryLocale === locale ? undefined : retryLocale
+  }
+
+  #translate = (locale, singular, plural, skipSyncToAllFiles, skipRetry) => {
+    if (!this.#hasLocale(locale)) {
+      locale = this.#resolveLocale(locale)
+    }
     if (!skipSyncToAllFiles && this.#syncFiles) {
       this.#syncToAllFiles(singular, plural)
     }
 
     let defaultSingular = singular
     let defaultPlural = plural
+    const originalSingular = singular
+    const originalPlural = plural
     if (this.#objectNotation) {
       let indexOfColon = singular.indexOf(':')
       if (indexOfColon > 0) {
@@ -1028,21 +1082,23 @@ class I18n {
       }
     }
 
-    if (!this.#usesObjectPath(singular)) {
+    const pathSegments = this.#getObjectPathSegments(singular)
+    if (!pathSegments) {
       const catalog = this.#locales[locale]
       let value = Object.hasOwn(catalog, singular) ? catalog[singular] : undefined
+      const retryLocale = value == null ? this.#getRetryLocale(locale, skipRetry) : undefined
 
       if (plural && value == null) {
-        if (this.#retryInDefaultLocale && locale !== this.#defaultLocale) {
+        if (retryLocale !== undefined) {
           this.#logDebug(
             'Missing ' +
               singular +
               ' in ' +
               locale +
               ' retrying in ' +
-              this.#defaultLocale
+              retryLocale
           )
-          value = this.#translate(this.#defaultLocale, singular, plural, true)
+          value = this.#translate(retryLocale, originalSingular, originalPlural, true, true)
         } else {
           value = {
             one: defaultSingular || singular,
@@ -1056,16 +1112,16 @@ class I18n {
       }
 
       if (value == null) {
-        if (this.#retryInDefaultLocale && locale !== this.#defaultLocale) {
+        if (retryLocale !== undefined) {
           this.#logDebug(
             'Missing ' +
               singular +
               ' in ' +
               locale +
               ' retrying in ' +
-              this.#defaultLocale
+              retryLocale
           )
-          value = this.#translate(this.#defaultLocale, singular, plural, true)
+          value = this.#translate(retryLocale, originalSingular, originalPlural, true, true)
         } else {
           value = defaultSingular || singular
         }
@@ -1078,49 +1134,55 @@ class I18n {
       return value
     }
 
-    const accessor = this.#localeAccessor(locale, singular)
-    const mutator = this.#localeMutator(locale, singular)
+    let value = this.#getObjectValue(locale, pathSegments)
+    if (value != null) {
+      return value
+    }
+    const retryLocale = this.#getRetryLocale(locale, skipRetry)
 
     if (plural) {
-      if (accessor() == null) {
-        if (this.#retryInDefaultLocale && locale !== this.#defaultLocale) {
-          this.#logDebug(
-            'Missing ' +
-              singular +
-              ' in ' +
-              locale +
-              ' retrying in ' +
-              this.#defaultLocale
-          )
-          mutator(this.#translate(this.#defaultLocale, singular, plural, true))
-        } else {
-          mutator({
-            one: defaultSingular || singular,
-            other: defaultPlural || plural
-          })
-        }
-        this.#write(locale)
-      }
-    }
-
-    if (accessor() == null) {
-      if (this.#retryInDefaultLocale && locale !== this.#defaultLocale) {
+      if (retryLocale !== undefined) {
         this.#logDebug(
           'Missing ' +
             singular +
             ' in ' +
             locale +
             ' retrying in ' +
-            this.#defaultLocale
+            retryLocale
         )
-        mutator(this.#translate(this.#defaultLocale, singular, plural, true))
+        this.#setObjectValue(locale, pathSegments, this.#translate(
+          retryLocale, originalSingular, originalPlural, true, true
+        ))
       } else {
-        mutator(defaultSingular || singular)
+        this.#setObjectValue(locale, pathSegments, {
+          one: defaultSingular || singular,
+          other: defaultPlural || plural
+        })
+      }
+      this.#write(locale)
+      value = this.#getObjectValue(locale, pathSegments)
+    }
+
+    if (value == null) {
+      if (retryLocale !== undefined) {
+        this.#logDebug(
+          'Missing ' +
+            singular +
+            ' in ' +
+            locale +
+            ' retrying in ' +
+            retryLocale
+        )
+        this.#setObjectValue(locale, pathSegments, this.#translate(
+          retryLocale, originalSingular, originalPlural, true, true
+        ))
+      } else {
+        this.#setObjectValue(locale, pathSegments, defaultSingular || singular)
       }
       this.#write(locale)
     }
 
-    return accessor()
+    return this.#getObjectValue(locale, pathSegments)
   }
 
   #syncToAllFiles = (singular, plural) => {
@@ -1129,11 +1191,14 @@ class I18n {
     }
   }
 
-  #usesObjectPath = (singular) => this.#getObjectPathSegments(singular) !== null
-
   #getObjectPathSegments = (singular) => {
     if (!this.#objectNotation) {
       return null
+    }
+
+    let segments = this.#objectPathSegments.get(singular)
+    if (segments) {
+      return segments
     }
 
     const indexOfDot = singular.lastIndexOf(this.#objectNotation)
@@ -1141,89 +1206,49 @@ class I18n {
       return null
     }
 
-    let segments = this.#objectPathSegments.get(singular)
-    if (!segments) {
-      segments = singular.split(this.#objectNotation)
-      setBoundedCache(this.#objectPathSegments, singular, segments)
-    }
+    segments = singular.split(this.#objectNotation)
+    setBoundedCache(this.#objectPathSegments, singular, segments)
 
     return segments
   }
 
-  #localeAccessor = (locale, singular, allowDelayedTraversal) => {
-    /* node:coverage ignore next */
-    if (!this.#locales[locale]) return Function.prototype
-
-    const pathSegments = this.#getObjectPathSegments(singular)
-
-    if (typeof allowDelayedTraversal === 'undefined') {
-      allowDelayedTraversal = true
-    }
-
-    let accessor = null
-    const nullAccessor = () => null
-    let reTraverse = false
-
-    pathSegments.reduce((object, index) => {
-      accessor = nullAccessor
-      if (object == null || !Object.hasOwn(object, index)) {
-        reTraverse = allowDelayedTraversal
-        return null
+  #getObjectValue = (locale, segments) => {
+    let value = this.#locales[locale]
+    for (const key of segments) {
+      if (value === null || typeof value !== 'object' || !Object.hasOwn(value, key)) {
+        return undefined
       }
-
-      accessor = () => object[index]
-      return object[index]
-    }, this.#locales[locale])
-
-    return () =>
-      reTraverse
-        ? this.#localeAccessor(locale, singular, false)()
-        : accessor()
+      value = value[key]
+    }
+    return value
   }
 
-  #localeMutator = (locale, singular, allowBranching) => {
-    /* node:coverage ignore next */
-    if (!this.#locales[locale]) return Function.prototype
-
-    const pathSegments = this.#getObjectPathSegments(singular)
-
-    if (typeof allowBranching === 'undefined') allowBranching = false
-
-    let accessor = null
-    let fixObject
-    let reTraverse = false
-
-    pathSegments.reduce((object, index) => {
-      if (object == null || !Object.hasOwn(object, index)) {
-        if (allowBranching) {
-          if (object == null || typeof object !== 'object') {
-            object = fixObject()
-          }
-          setOwn(object, index, {})
-        } else {
-          reTraverse = true
-          return null
-        }
+  #setObjectValue = (locale, segments, value) => {
+    let object = this.#locales[locale]
+    for (let index = 0; index < segments.length - 1; index += 1) {
+      const key = segments[index]
+      let child = Object.hasOwn(object, key) ? object[key] : undefined
+      if (child === null || typeof child !== 'object') {
+        child = setOwn(object, key, {})
       }
-
-      accessor = (value) => {
-        return setOwn(object, index, value)
-      }
-      fixObject = () => {
-        return setOwn(object, index, {})
-      }
-
-      return object[index]
-    }, this.#locales[locale])
-
-    return (value) => {
-      return reTraverse
-        ? this.#localeMutator(locale, singular, true)(value)
-        : accessor(this.#missingKeyFn(locale, value))
+      object = child
     }
+
+    const key = segments.at(-1)
+    // A callback can translate this same path before returning its replacement.
+    if (!Object.hasOwn(object, key)) {
+      setOwn(object, key, {})
+    }
+    setOwn(object, key, this.#missingKeyFn(locale, value))
   }
 
   #read = (locale) => {
+    if (!isValidLocale(locale)) {
+      throw new TypeError('Invalid locale: ' + locale)
+    }
+    if (this.#staticCatalog) {
+      return
+    }
     let localeFile = {}
     const file = this.#getStorageFilePath(locale)
 
@@ -1258,7 +1283,9 @@ class I18n {
       }
 
       this.#failedCatalogs.delete(locale)
-      if (this.#hasLocale(locale)) return
+      if (this.#hasLocale(locale)) {
+        return
+      }
       this.#logDebug('initializing ' + file)
       this.#write(locale)
     }
@@ -1272,7 +1299,9 @@ class I18n {
         this.#logDebug('backed up invalid locale file to ' + backup)
         return
       } catch (error) {
-        if (error.code !== 'EEXIST') throw error
+        if (error.code !== 'EEXIST') {
+          throw error
+        }
       }
     }
   }
@@ -1293,7 +1322,9 @@ class I18n {
       try {
         fs.mkdirSync(this.#directory, this.#directoryPermissions)
       } catch (mkdirError) {
-        if (mkdirError.code !== 'EEXIST') throw mkdirError
+        if (mkdirError.code !== 'EEXIST') {
+          throw mkdirError
+        }
       }
     }
 
@@ -1339,7 +1370,9 @@ class I18n {
   }
 
   #getStorageFilePath = (locale) => {
-    if (!isValidLocale(locale)) throw new TypeError('Invalid locale: ' + locale)
+    if (!isValidLocale(locale)) {
+      throw new TypeError('Invalid locale: ' + locale)
+    }
     const ext = this.#extension || '.json'
     const filepath = path.normalize(
       this.#directory + path.sep + this.#prefix + locale + ext
@@ -1374,7 +1407,9 @@ class I18n {
   }
 
   #getFallback = (targetLocale, fallbacks = {}) => {
-    if (!isValidLocale(targetLocale) || !fallbacks) return null
+    if (!isValidLocale(targetLocale) || !fallbacks) {
+      return null
+    }
     if (
       Object.hasOwn(fallbacks, targetLocale) &&
       isValidLocale(fallbacks[targetLocale])
@@ -1384,8 +1419,10 @@ class I18n {
 
     let fallbackLocale = null
     for (const key in fallbacks) {
-      if (!Object.hasOwn(fallbacks, key) || !isValidLocale(fallbacks[key])) continue
-      const pattern = '^' + key.split('*').map(escapeRegExp).join('.*') + '$'
+      if (!Object.hasOwn(fallbacks, key) || !isValidLocale(fallbacks[key])) {
+        continue
+      }
+      const pattern = '^' + key.split('*').map(RegExp.escape).join('.*') + '$'
       if (targetLocale.match(new RegExp(pattern))) {
         fallbackLocale = fallbacks[key]
         break
