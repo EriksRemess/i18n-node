@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { describe, it } from 'node:test'
-import parseInterval, { parseIntervalPrefix } from '#lib/math-interval-parser'
+import parseInterval, { matchIntervalPrefix, parseIntervalPrefix } from '#lib/math-interval-parser'
 
 describe('vendored interval parser', () => {
   const cases = [
@@ -60,7 +60,26 @@ describe('vendored interval parser', () => {
     for (const input of [null, {}, 'text [1,2]', '[1e,2] text', '[2,1] text',
       '(2,2) text', '[] text', '[[1,2]] text', '[1 2] text']) {
       assert.equal(parseIntervalPrefix(input), null)
+      assert.equal(matchIntervalPrefix(input, 2), null)
     }
+  })
+
+  it('matches interval boundaries without confusing empty text, misses, and invalid rules', () => {
+    for (const [input, from, includeFrom, to, includeTo] of cases) {
+      for (const [count, expected] of [
+        [from, includeFrom], [to, includeTo],
+        [-Infinity, from === -Infinity && includeFrom],
+        [Infinity, to === Infinity && includeTo],
+        [NaN, false], [undefined, false], ['2', false]
+      ]) {
+        assert.equal(matchIntervalPrefix(`${input} text`, count), expected ? 'text' : false,
+          `${input} for ${String(count)}`)
+      }
+    }
+    assert.equal(matchIntervalPrefix('[0]  ', 0), '')
+    assert.equal(matchIntervalPrefix('[0]  ', 1), false)
+    assert.equal(matchIntervalPrefix('fallback', 0), null)
+    assert.equal(matchIntervalPrefix('[0,10] first\nsecond', 5), 'first\nsecond')
   })
 
   it('handles long whitespace runs without excessive backtracking', () => {

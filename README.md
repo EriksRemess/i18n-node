@@ -177,11 +177,14 @@ with their MIT licenses. The internal Mustache module exposes only rendering;
 i18n does not supply partial templates. Tests include the applicable official
 Mustache fixtures, JavaScript lambdas, interval boundaries, and i18n regressions.
 
-The benchmarks report median throughput over five rounds. Optional
+The benchmarks report median throughput over five alternating rounds and batch
+calls to reduce timing overhead. Optional
 `MUSTACHE_BASELINE` and `INTERVAL_BASELINE` environment variables point to local
 copies of the original module entry points for comparison.
 `I18N_BASELINE` points to another checkout's `index.js` for the runtime benchmark,
 which includes repeated translations, rotating messages, and interval cache misses.
+The vendor benchmark also compares interval selection when the baseline exports
+`parseIntervalPrefix`.
 For the full-library comparison, run `npm ci --prefix bench`, then `npm run bench`.
 
 ## Authors and license

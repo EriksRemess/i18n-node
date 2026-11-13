@@ -66,4 +66,30 @@ describe('translation optimization regressions', () => {
     named.name = 'Bob'
     assert.equal(i18n.__('greeting', named), 'Hello Bob')
   })
+
+  it('preserves short plural counts, scopes, and mutable catalogs', () => {
+    const catalog = { choice: { one: '%s item', other: '%s items' } }
+    const i18n = new I18n({ staticCatalog: { en: catalog, de: {
+      choice: { one: '%s Ding', other: '%s Dinge' }
+    } }, fallbacks: { xx: 'de' } })
+    for (const count of [0, 1, 2, -1, 0.5, NaN, Infinity, -Infinity]) {
+      const expected = `${count} ${count === 1 ? 'item' : 'items'}`
+      assert.equal(i18n.__n('choice', count), expected)
+      assert.equal(i18n.__n('choice', String(count)), expected)
+    }
+    assert.equal(i18n.__n.call({ scope: { locale: 'de' } }, 'choice', 2), '2 Dinge')
+    assert.equal(i18n.__n.call({ locale: 'xx' }, 'choice', '1'), '1 Ding')
+    catalog.choice = { one: 'changed', other: 'changed plural' }
+    assert.equal(i18n.__n('choice', 2), 'changed plural')
+  })
+
+  it('clears cached flat and nested paths when the separator changes', () => {
+    const staticCatalog = { en: { 'group/value': 'flat', group: { value: 'nested' } } }
+    const i18n = new I18n({ staticCatalog, objectNotation: true })
+    assert.equal(i18n.__('group/value'), 'flat')
+    assert.equal(i18n.__('group.value'), 'nested')
+    i18n.configure({ staticCatalog, objectNotation: '/' })
+    assert.equal(i18n.__('group/value'), 'nested')
+    assert.equal(i18n.__('group.value'), 'group.value')
+  })
 })

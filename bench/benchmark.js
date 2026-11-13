@@ -11,7 +11,10 @@ const measure = (fn) => {
   let iterations = 0
   const start = performance.now()
   while (performance.now() - start < duration) {
-    fn(iterations++)
+    const end = iterations + 128
+    while (iterations < end) {
+      fn(iterations++)
+    }
   }
   return iterations / (performance.now() - start) * 1000
 }

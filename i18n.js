@@ -8,11 +8,12 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { URLSearchParams } from 'node:url'
 import * as MakePlural from 'make-plural'
-import { parseIntervalPrefix } from '#lib/math-interval-parser'
+import { matchIntervalPrefix, parseIntervalPrefix } from '#lib/math-interval-parser'
 import renderMustache from '#lib/mustache'
 import pkg from '#package' with { type: 'json' }
 import createDebug from '#lib/debug'
-import { printf } from '#lib/printf'
+import { printf, printfArgs } from '#lib/printf'
+import BoundedCache from '#lib/bounded-cache'
 
 const pkgVersion = pkg.version
 const debug = createDebug('i18n:debug')
@@ -40,7 +41,6 @@ const EMPTY_OBJECT = Object.freeze({})
 const MESSAGE_FEATURE_INTERVAL = 1
 const MESSAGE_FEATURE_PERCENT = 2
 const MESSAGE_FEATURE_MUSTACHE = 4
-const CACHE_LIMIT = 1024
 const PLURAL_RULES = new Map(
   Object.entries(MakePlural).map(([locale, resolver]) => [
     locale.toLowerCase().replaceAll('_', '-'), resolver
@@ -68,15 +68,6 @@ const cloneMustacheConfig = () => ({
   disable: DEFAULT_MUSTACHE_CONFIG.disable,
   tags: [...DEFAULT_MUSTACHE_CONFIG.tags]
 })
-
-const setBoundedCache = (cache, key, value) => {
-  if (cache.size >= CACHE_LIMIT) {
-    const firstKey = cache.keys().next().value
-    cache.delete(firstKey)
-  }
-
-  cache.set(key, value)
-}
 
 /**
  * create constructor class
@@ -116,8 +107,8 @@ class I18n {
   #syncFiles = false
   #missingKeyFn
   #parser = JSON
-  #messageFeatures = new Map()
-  #objectPathSegments = new Map()
+  #messageFeatures = new BoundedCache()
+  #objectPathSegments = new BoundedCache()
 
   constructor(options = false) {
     this.#missingKeyFn = this.#missingKey
@@ -356,11 +347,17 @@ class I18n {
     function i18nTranslatePlural(singular, plural, count) {
       if (
         typeof singular === 'string' &&
-        typeof plural === 'string' &&
-        String(Number(plural)) !== plural &&
-        arguments.length === 3
+        ((arguments.length === 2 &&
+          (typeof plural === 'number' ||
+            (typeof plural === 'string' && String(Number(plural)) === plural))) ||
+          (arguments.length === 3 &&
+            typeof plural === 'string' && String(Number(plural)) !== plural))
       ) {
         const targetLocale = i18n.#resolveLocale(i18n.#getLocaleFromObject(this))
+        if (arguments.length === 2) {
+          count = plural
+          plural = singular
+        }
         let msg = i18n.#translate(targetLocale, singular, plural)
         const numericCount =
           typeof count === 'number' ? count : Number(count)
@@ -684,7 +681,7 @@ class I18n {
       args.length > 0 &&
       (features.flags & MESSAGE_FEATURE_PERCENT) !== 0
     ) {
-      msg = printf(msg, ...args)
+      msg = printfArgs(msg, args)
     }
 
     return msg
@@ -710,7 +707,7 @@ class I18n {
       features.flags |= MESSAGE_FEATURE_MUSTACHE
     }
 
-    setBoundedCache(this.#messageFeatures, msg, features)
+    this.#messageFeatures.set(msg, features)
     return features
   }
 
@@ -961,6 +958,18 @@ class I18n {
 
     for (let index = 0; index < rules.length; index += 1) {
       const rule = rules[index]
+      if (!cacheRules) {
+        const selected = matchIntervalPrefix(rule, count)
+        if (selected === null) {
+          fallback = rule
+        } else {
+          intervalRuleExists = true
+          if (selected !== false) {
+            return selected
+          }
+        }
+        continue
+      }
       let part
       let interval
       let text
@@ -969,9 +978,7 @@ class I18n {
         const parsed = parseIntervalPrefix(part)
         interval = parsed?.interval ?? null
         text = parsed?.text
-        if (cacheRules) {
-          rules[index] = { part, interval, text }
-        }
+        rules[index] = { part, interval, text }
       } else {
         part = rule.part
         interval = rule.interval
@@ -1197,17 +1204,18 @@ class I18n {
     }
 
     let segments = this.#objectPathSegments.get(singular)
-    if (segments) {
+    if (segments !== undefined) {
       return segments
     }
 
     const indexOfDot = singular.lastIndexOf(this.#objectNotation)
     if (indexOfDot <= 0 || indexOfDot >= singular.length - 1) {
+      this.#objectPathSegments.set(singular, null)
       return null
     }
 
     segments = singular.split(this.#objectNotation)
-    setBoundedCache(this.#objectPathSegments, singular, segments)
+    this.#objectPathSegments.set(singular, segments)
 
     return segments
   }

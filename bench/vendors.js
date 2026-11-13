@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import renderMustache from '../lib/mustache.js'
-import parseInterval from '../lib/math-interval-parser.js'
+import parseInterval, { matchIntervalPrefix, parseIntervalPrefix } from '../lib/math-interval-parser.js'
 import { compare } from './benchmark.js'
 
 // Optional baselines are local copies of the original dependency entry points.
@@ -26,6 +26,8 @@ const cases = [
   ['sections', '{{#items}}{{name}}={{value}};{{/items}}', {
     items: Array.from({ length: 10 }, (_, value) => ({ name: 'item', value }))
   }],
+  ['many names', Array.from({ length: 100 }, (_, index) => `{{key${index}}}`).join(' '),
+    Object.fromEntries(Array.from({ length: 100 }, (_, index) => [`key${index}`, index]))],
   ['custom delimiters', 'Hello <%name%>', { name: 'Alice' }, ['<%', '%>']]
 ]
 
@@ -58,12 +60,33 @@ for (const [label, template] of [
 }
 
 const parsers = [['vendored', parseInterval]]
+const matchers = [['vendored', matchIntervalPrefix]]
+const selectPrefix = (parse, input, count) => {
+  const result = parse(input)
+  if (!result) return null
+  const { from, to } = result.interval
+  return (count > from.value || (count === from.value && from.included)) &&
+    (count < to.value || (count === to.value && to.included)) ? result.text : false
+}
 if (process.env.INTERVAL_BASELINE) {
   const module = await import(pathToFileURL(resolve(process.env.INTERVAL_BASELINE)))
   parsers.unshift(['upstream', module.default.default ?? module.default])
+  if (module.parseIntervalPrefix) {
+    matchers.unshift(['baseline', (input, count) => selectPrefix(module.parseIntervalPrefix, input, count)])
+  }
 }
 for (const input of ['[2,5]', '[-1.5,2e3)', '[0,]', 'invalid']) {
   const expected = parsers[0][1](input)
   for (const [, parser] of parsers) assert.deepEqual(parser(input), expected)
   compare(`Interval ${input}`, parsers.map(([name, parser]) => [name, () => parser(input)]))
+}
+
+for (const input of ['[2,10] a few', '[-1.5,2e3) text', '[0,] all', 'fallback']) {
+  for (const count of [-2, 0, 2, 5, 10, 15, NaN, Infinity]) {
+    const expected = selectPrefix(parseIntervalPrefix, input, count)
+    for (const [, match] of matchers) assert.equal(match(input, count), expected)
+  }
+  compare(`Interval selection ${input}`, matchers.map(([name, match]) => [
+    name, (index) => match(input, index % 15)
+  ]))
 }

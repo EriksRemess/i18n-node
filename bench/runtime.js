@@ -19,6 +19,8 @@ const intervals = Array.from({ length: 2048 }, (_, index) =>
   `[0] none ${index}|[1] one ${index}|[2,10] a few ${index}|[11,] many ${index}`
 )
 const cases = [
+  ['flat plain text', (i18n) => i18n.__('plain'), { objectNotation: false }],
+  ['flat named values', (i18n) => i18n.__('named', named), { objectNotation: false }],
   ['plain text', (i18n) => i18n.__('plain')],
   ['positional values', (i18n) => i18n.__('positional', 'Alice', 42)],
   ['named values', (i18n) => i18n.__('named', named)],
@@ -26,6 +28,8 @@ const cases = [
   ['sections', (i18n) => i18n.__('section', section)],
   ['plurals', (i18n, index) => i18n.__n('plural', 'plurals', index % 5)],
   ['short plurals', (i18n, index) => i18n.__n('plural', index % 5)],
+  ['short string counts', (i18n, index) => i18n.__n('plural', String(index % 5))],
+  ['named plurals', (i18n, index) => i18n.__n('plural', index % 5, named)],
   ['intervals', (i18n, index) => i18n.__n('interval', index % 15)],
   ['rotating intervals', (i18n, index, catalog) => {
     catalog.interval = intervals[index % 100]
@@ -38,7 +42,7 @@ const cases = [
   ['nested catalog', (i18n) => i18n.__('group.nested.greeting', named)]
 ]
 
-for (const [label, run] of cases) {
+for (const [label, run, options] of cases) {
   const variants = implementations.map(([name, Constructor]) => {
     const catalog = {
       plain: 'Hello',
@@ -53,7 +57,8 @@ for (const [label, run] of cases) {
     const i18n = new Constructor({
       staticCatalog: { en: catalog },
       defaultLocale: 'en',
-      objectNotation: true
+      objectNotation: true,
+      ...options
     })
     i18n.setLocale('en')
     return [name, (index) => run(i18n, index, catalog)]

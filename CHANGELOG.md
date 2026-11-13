@@ -4,6 +4,11 @@ Changes to [Ēriks Remess's i18n-node fork](https://github.com/EriksRemess/i18n-
 published as `@eriksremess/i18n`. Earlier upstream history is available in
 [mashpie/i18n-node](https://github.com/mashpie/i18n-node).
 
+## Unreleased
+
+- Speed up interpolation, plural translation, interval selection, and cache
+  eviction, including the vendored Mustache and interval helpers.
+
 ## 0.16.0
 
 ### Changed

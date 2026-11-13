@@ -146,4 +146,38 @@ describe('vendored Mustache regressions', () => {
     assert.equal(render('{{missing}}{{value}}', view), '3')
     assert.equal(reads, 2)
   })
+
+  it('preserves getter and lambda behavior when a context has many distinct names', () => {
+    let reads = 0
+    let calls = 0
+    const view = {
+      first: 'a', second: 'b',
+      get missing() { reads += 1; return undefined },
+      value() { calls += 1; return this.first + calls },
+      ['__proto__']: 'safe', constructor: 'own'
+    }
+    const template = '{{first}}{{second}}{{missing}}{{value}}{{__proto__}}{{constructor}}' +
+      '{{missing}}{{value}}{{__proto__}}'
+    assert.equal(render(template, view), 'aba1safeowna2safe')
+    assert.equal(reads, 1)
+    assert.equal(calls, 2)
+    view.first = 'c'
+    assert.equal(render(template, view), 'cbc3safeownc4safe')
+    assert.equal(reads, 2)
+    assert.equal(calls, 4)
+  })
+
+  it('shares lookups with higher-order sections while separating child contexts', () => {
+    let reads = 0
+    const view = {
+      first: 'a', second: 'b',
+      get value() { reads += 1; return 'parent' },
+      child: { value: 'child' },
+      wrap() { return (text, render) => render('{{value}}' + text) }
+    }
+    assert.equal(render('{{first}}{{second}}{{value}}' +
+      '{{#wrap}}{{value}}{{/wrap}}{{#child}}{{value}}{{/child}}', view),
+    'abparentparentparentchild')
+    assert.equal(reads, 1)
+  })
 })
