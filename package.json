@@ -1,7 +1,7 @@
 {
   "name": "@eriksremess/i18n",
   "description": "lightweight translation module with dynamic json storage",
-  "version": "0.16.0",
+  "version": "0.16.1",
   "homepage": "https://github.com/EriksRemess/i18n-node#readme",
   "repository": {
     "type": "git",
