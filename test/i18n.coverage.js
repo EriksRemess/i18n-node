@@ -350,41 +350,24 @@ describe('coverage branches', () => {
       }
     })
 
-    it('should log when the temporary locale file is not a file', () => {
+    it('should log a failed catalog save and preserve the previous file', () => {
       const directory = makeTempDir()
-      const errors = []
-      const originalStatSync = fs.statSync
       const target = path.join(directory, 'en.json')
-      const tmp = `${target}.tmp`
-
+      const errors = []
+      const originalOpen = fs.openSync
       try {
         fs.writeFileSync(target, '{}')
-
-        const instance = new I18n({
-          locales: ['en'],
-          directory,
-          logErrorFn(message) {
-            errors.push(message)
-          }
-        })
-
-        fs.statSync = (filepath, ...args) => {
-          if (filepath === tmp) {
-            return {
-              isFile() {
-                return false
-              }
-            }
-          }
-
-          return originalStatSync(filepath, ...args)
+        const instance = new I18n({ directory, logErrorFn: (message, error) => errors.push(error) })
+        fs.openSync = (file, flags, ...args) => {
+          if (flags === 'wx') throw new Error('cannot create temporary file')
+          return originalOpen(file, flags, ...args)
         }
-
-        instance.__({ phrase: 'Hello', locale: 'en' }).should.equal('Hello')
+        instance.__('Hello').should.equal('Hello')
         errors.length.should.equal(1)
-        errors[0].should.containEql('unable to write locales to file')
+        errors[0].message.should.equal('cannot create temporary file')
+        fs.readFileSync(target, 'utf8').should.equal('{}')
       } finally {
-        fs.statSync = originalStatSync
+        fs.openSync = originalOpen
         fs.rmSync(directory, { recursive: true, force: true })
       }
     })

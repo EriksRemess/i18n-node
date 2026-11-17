@@ -63,12 +63,15 @@ Each locale is an object in a separate file, such as `locales/de.json`:
 }
 ```
 
-Omit `locales` to discover catalogs in an existing directory. With
+Omit `locales` to discover catalogs in an existing directory. If the directory
+is missing, i18n starts with the default locale. With
 `updateFiles: true` (the default), missing translations are written to disk.
 With `false`, new phrases stay in memory. Malformed catalogs use a configured
 fallback or the default locale; a failed reload preserves the last valid catalog.
 Before overwriting a failed file, its contents are backed up to `.invalid`,
-with numbered suffixes when needed.
+with numbered suffixes when needed. Each save atomically replaces one complete
+catalog. When multiple processes write the same locale, the last successful
+rename determines its contents.
 
 `staticCatalog` supplies catalogs directly and disables filesystem reads, writes,
 watching, and synchronization, including file loading through `addLocale()`.

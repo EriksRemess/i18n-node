@@ -4,6 +4,7 @@
  * @license     http://opensource.org/licenses/MIT
  */
 
+import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { URLSearchParams } from 'node:url'
@@ -36,6 +37,8 @@ const DEFAULT_MUSTACHE_CONFIG = Object.freeze({
   tags: ['{{', '}}'],
   disable: false
 })
+const boundHelpers = new WeakMap()
+const PENDING_TRANSLATION = Symbol('pending translation')
 const EMPTY_ARRAY = Object.freeze([])
 const EMPTY_OBJECT = Object.freeze({})
 const MESSAGE_FEATURE_INTERVAL = 1
@@ -79,6 +82,7 @@ class I18n {
   #locales = {}
   #staticCatalog = false
   #failedCatalogs = new Map()
+  #pendingMissingKeys = new WeakMap()
   #api = cloneApi()
   #mustacheConfig = cloneMustacheConfig()
   #mustacheStart = '{{'
@@ -111,7 +115,6 @@ class I18n {
   #objectPathSegments = new BoundedCache()
 
   constructor(options = false) {
-    this.#missingKeyFn = this.#missingKey
     this.#updateMustacheTags()
 
     if (options) {
@@ -182,7 +185,7 @@ class I18n {
       i18n.#missingKeyFn =
         typeof opt.missingKeyFn === 'function'
           ? opt.missingKeyFn
-          : i18n.#missingKey
+          : undefined
       i18n.#parser =
         opt.parser !== null &&
         typeof opt.parser === 'object' &&
@@ -238,11 +241,9 @@ class I18n {
             i18n.#directory,
             { persistent: false },
             (event, filename) => {
-              const localeFromFile = i18n.#guessLocaleFromFile(filename)
-
-              if (localeFromFile && i18n.#watchedLocales.has(localeFromFile)) {
-                i18n.#logDebug('Auto reloading locale file "' + filename + '".')
-                i18n.#read(localeFromFile)
+              i18n.#reloadWatchedFile(filename, i18n.#extension || '.json')
+              if (i18n.#extension !== '.js') {
+                i18n.#reloadWatchedFile(filename, '.js')
               }
             }
           )
@@ -345,14 +346,18 @@ class I18n {
 
   __n = ((i18n) =>
     function i18nTranslatePlural(singular, plural, count) {
-      if (
-        typeof singular === 'string' &&
-        ((arguments.length === 2 &&
-          (typeof plural === 'number' ||
-            (typeof plural === 'string' && String(Number(plural)) === plural))) ||
-          (arguments.length === 3 &&
-            typeof plural === 'string' && String(Number(plural)) !== plural))
-      ) {
+      let shortCount = typeof plural === 'number'
+      if (typeof singular === 'string' && typeof plural === 'string') {
+        const number = Number(plural)
+        shortCount = String(number) === plural || (
+          (arguments.length === 2 || (arguments.length === 3 && i18n.#argsEndWithNamedObject(arguments))) &&
+          plural.trim() !== '' && !Number.isNaN(number)
+        )
+      }
+      if (typeof singular === 'string' && (
+        (arguments.length === 2 && shortCount) ||
+        (arguments.length === 3 && typeof plural === 'string' && !shortCount)
+      )) {
         const targetLocale = i18n.#resolveLocale(i18n.#getLocaleFromObject(this))
         if (arguments.length === 2) {
           count = plural
@@ -406,15 +411,13 @@ class I18n {
           i18n.#argsEndWithNamedObject(arguments) ? -1 : undefined
         )
 
-        if (typeof plural === 'number' || Number(plural) + '' === plural) {
-          count = plural
-        }
-
         if (hasInlineCount) {
           count = singular.count
+        } else if (typeof plural === 'number' || typeof plural === 'string') {
+          count = plural
         }
       } else {
-        if (typeof plural === 'number' || Number(plural) + '' === plural) {
+        if (shortCount) {
           args = Array.prototype.slice.call(
             arguments,
             2,
@@ -465,35 +468,21 @@ class I18n {
         targetLocale = i18n.#getFallback(targetLocale, i18n.#fallbacks) || targetLocale
       }
 
-      targetObject.locale = i18n.#hasLocale(targetLocale)
+      const selected = i18n.#hasLocale(targetLocale)
         ? targetLocale
         : i18n.#defaultLocale
 
-      if (i18n.#register && typeof i18n.#register === 'object') {
-        if (Array.isArray(i18n.#register) && !skipImplicitObjects) {
-          i18n.#register.forEach((registeredObject) => {
-            registeredObject.locale = targetObject.locale
-          })
-        } else {
-          i18n.#register.locale = targetObject.locale
-        }
+      if (!skipImplicitObjects && (targetObject.res || targetObject.locals)) {
+        i18n.#visitScopes(targetObject, (scope) => { scope.locale = selected })
+      } else {
+        targetObject.locale = selected
       }
 
-      if (targetObject.res && !skipImplicitObjects) {
-        if (targetObject.res.locals) {
-          i18n.setLocale(targetObject.res, targetObject.locale, true)
-          i18n.setLocale(targetObject.res.locals, targetObject.locale, true)
+      if (i18n.#register && !skipImplicitObjects) {
+        if (Array.isArray(i18n.#register)) {
+          i18n.#register.forEach((registeredObject) => { registeredObject.locale = selected })
         } else {
-          i18n.setLocale(targetObject.res, targetObject.locale)
-        }
-      }
-
-      if (targetObject.locals && !skipImplicitObjects) {
-        if (targetObject.locals.res) {
-          i18n.setLocale(targetObject.locals, targetObject.locale, true)
-          i18n.setLocale(targetObject.locals.res, targetObject.locale, true)
-        } else {
-          i18n.setLocale(targetObject.locals, targetObject.locale)
+          i18n.#register.locale = selected
         }
       }
 
@@ -584,7 +573,7 @@ class I18n {
   #localesKeys = () => Object.keys(this.#locales)
 
   // Locale names and catalog shapes are validated when catalogs are loaded.
-  #hasLocale = (locale) => Object.hasOwn(this.#locales, locale)
+  #hasLocale = (locale) => typeof locale === 'string' && Object.hasOwn(this.#locales, locale)
 
   #selectPlural = (message, locale, count) => {
     let resolver = this.#pluralsForLocale[locale]
@@ -634,7 +623,7 @@ class I18n {
     this.#register = null
     this.#updateFiles = true
     this.#syncFiles = false
-    this.#missingKeyFn = this.#missingKey
+    this.#missingKeyFn = undefined
     this.#parser = JSON
     this.#messageFeatures.clear()
     this.#objectPathSegments.clear()
@@ -727,38 +716,43 @@ class I18n {
     return [namedValues, positional]
   }
 
-  #applyAPIToObject = (object) => {
-    let alreadySet = true
-
-    for (const method in this.#api) {
-      if (Object.hasOwn(this.#api, method)) {
-        const alias = this.#api[method]
-        if (!object[alias]) {
-          alreadySet = false
-          object[alias] = this[method].bind(object)
-        }
-      }
-    }
-
-    if (!object.locale) {
-      object.locale = this.#defaultLocale
-    }
-
-    if (alreadySet) {
-      return
-    }
-
-    if (object.res) {
-      this.#applyAPIToObject(object.res)
-    }
-
-    if (object.locals) {
-      this.#applyAPIToObject(object.locals)
+  #visitScopes = (root, visit) => {
+    const pending = [root]
+    const seen = new Set()
+    while (pending.length) {
+      const scope = pending.pop()
+      if (!scope || typeof scope !== 'object' || seen.has(scope)) continue
+      seen.add(scope)
+      visit(scope)
+      if (scope.locals) pending.push(scope.locals)
+      if (scope.res) pending.push(scope.res)
     }
   }
 
+  #applyAPIToObject = (root) => {
+    this.#visitScopes(root, (scope) => {
+      for (const [method, alias] of Object.entries(this.#api)) {
+        const current = scope[alias]
+        const installed = boundHelpers.get(current)
+        if (current && (!installed || (installed.scope === scope && installed.method === this[method]))) {
+          continue
+        }
+        const bound = this[method].bind(scope)
+        boundHelpers.set(bound, { scope, method: this[method] })
+        scope[alias] = bound
+      }
+      if (!scope.locale) scope.locale = this.#defaultLocale
+    })
+  }
+
   #guessLocales = (directory) => {
-    const entries = fs.readdirSync(directory)
+    let entries
+    try {
+      entries = fs.readdirSync(directory)
+    } catch (error) {
+      if (error.code === 'ENOENT') return [this.#defaultLocale]
+      throw error
+    }
     const locales = []
 
     for (let i = entries.length - 1; i >= 0; i -= 1) {
@@ -774,8 +768,15 @@ class I18n {
     return locales.sort()
   }
 
-  #guessLocaleFromFile = (filename) => {
-    const extension = this.#extension || '.json'
+  #reloadWatchedFile = (filename, extension) => {
+    const locale = this.#guessLocaleFromFile(filename, extension)
+    if (locale && this.#watchedLocales.has(locale)) {
+      this.#logDebug('Auto reloading locale file "' + filename + '".')
+      this.#read(locale)
+    }
+  }
+
+  #guessLocaleFromFile = (filename, extension = this.#extension || '.json') => {
     if (typeof filename !== 'string') {
       return false
     }
@@ -794,9 +795,8 @@ class I18n {
 
   #guessLanguage = (request) => {
     if (typeof request === 'object') {
-      const languageHeader = request.headers
-        ? request.headers[this.#languageHeaderName]
-        : undefined
+      const languageHeader = request.headers?.[this.#languageHeaderName] ??
+        request.headers?.[this.#languageHeaderName.toLowerCase()]
       const languages = []
       const regions = []
 
@@ -805,7 +805,7 @@ class I18n {
       request.language = this.#defaultLocale
       request.region = this.#defaultLocale
 
-      if (this.#queryParameter && request.url) {
+      if (this.#queryParameter) {
         let languageQueryParameter
 
         if (
@@ -816,7 +816,7 @@ class I18n {
           languageQueryParameter = request.query[this.#queryParameter]
         }
 
-        if (languageQueryParameter === undefined) {
+        if (languageQueryParameter === undefined && request.url) {
           const urlAsString =
             typeof request.url === 'string' ? request.url : request.url.toString()
           const queryIndex = urlAsString.indexOf('?')
@@ -844,12 +844,9 @@ class I18n {
         }
       }
 
-      if (
-        this.#cookiename &&
-        request.cookies &&
-        request.cookies[this.#cookiename]
-      ) {
-        request.language = request.cookies[this.#cookiename]
+      const cookieLanguage = this.#cookiename && request.cookies?.[this.#cookiename]
+      if (typeof cookieLanguage === 'string' && cookieLanguage) {
+        request.language = cookieLanguage
         return this.setLocale(request, request.language)
       }
 
@@ -860,6 +857,9 @@ class I18n {
         let match
         let fallbackMatch
         let fallback
+        const headerFallbacks = Object.fromEntries(
+          Object.entries(this.#fallbacks ?? {}).map(([key, value]) => [key.toLowerCase(), value])
+        )
         const processedLanguages = new Set()
         const catalogNames = new Map(
           this.#localesKeys().map((locale) => [locale.toLowerCase(), locale])
@@ -875,7 +875,7 @@ class I18n {
           const parentLang = localeParts[0]
           const region = localeParts[1]
 
-          const fallbackLang = this.#getFallback(lang, this.#fallbacks)
+          const fallbackLang = this.#getFallback(lang.toLowerCase(), headerFallbacks)
           if (fallbackLang && !processedLanguages.has(fallbackLang)) {
             fallback = fallbackLang
             const fallbackIndex = acceptedLanguages.indexOf(fallback)
@@ -886,8 +886,8 @@ class I18n {
           }
 
           const fallbackParentLang = this.#getFallback(
-            parentLang,
-            this.#fallbacks
+            parentLang.toLowerCase(),
+            headerFallbacks
           )
           if (fallbackParentLang) {
             fallback = fallbackParentLang
@@ -908,8 +908,10 @@ class I18n {
             break
           }
 
-          if (!fallbackMatch && catalogNames.has(parentLang.toLowerCase())) {
-            fallbackMatch = catalogNames.get(parentLang.toLowerCase())
+          let parent = lang.toLowerCase()
+          while (!fallbackMatch && parent.includes('-')) {
+            parent = parent.slice(0, parent.lastIndexOf('-'))
+            fallbackMatch = catalogNames.get(parent)
           }
         }
 
@@ -1005,6 +1007,11 @@ class I18n {
     return intervalRuleExists && fallback !== undefined ? fallback : phrase
   }
 
+  #loadLocale = (locale) => {
+    if (!this.#hasLocale(locale) && !this.#failedCatalogs.has(locale)) this.#read(locale)
+    return this.#hasLocale(locale)
+  }
+
   #resolveLocale = (locale) => {
     if (this.#hasLocale(locale)) {
       return locale
@@ -1027,31 +1034,21 @@ class I18n {
       locale = this.#getFallback(locale, this.#fallbacks) || locale
     }
 
-    if (!this.#hasLocale(locale) && !this.#failedCatalogs.has(locale)) {
-      this.#read(locale)
+    if (this.#loadLocale(locale)) return locale
+
+    this.#logWarn(
+      'WARN: Locale ' + locale + " couldn't be read - check the context of the call to $__. Using " +
+        this.#defaultLocale + ' (default) as current locale'
+    )
+    if (this.#hasLocale(this.#defaultLocale)) return this.#defaultLocale
+    const fallback = this.#getFallback(this.#defaultLocale, this.#fallbacks)
+    if (fallback && fallback !== locale && this.#loadLocale(fallback)) return fallback
+
+    if (locale === this.#defaultLocale || !this.#loadLocale(this.#defaultLocale)) {
+      this.#locales[this.#defaultLocale] = {}
+      if (this.#autoReload) this.#watchedLocales.add(this.#defaultLocale)
     }
-
-    if (!this.#hasLocale(locale)) {
-      this.#logWarn(
-        'WARN: Locale ' +
-          locale +
-          " couldn't be read - check the context of the call to $__. Using " +
-          this.#defaultLocale +
-          ' (default) as current locale'
-      )
-
-      locale = this.#defaultLocale
-      if (!this.#hasLocale(locale)) {
-        if (!this.#failedCatalogs.has(locale)) {
-          this.#read(locale)
-        }
-        if (!this.#hasLocale(locale)) {
-          this.#locales[locale] = {}
-        }
-      }
-    }
-
-    return locale
+    return this.#defaultLocale
   }
 
   #getRetryLocale = (locale, skipRetry) => {
@@ -1062,140 +1059,99 @@ class I18n {
     return retryLocale === locale ? undefined : retryLocale
   }
 
-  #translate = (locale, singular, plural, skipSyncToAllFiles, skipRetry) => {
-    if (!this.#hasLocale(locale)) {
-      locale = this.#resolveLocale(locale)
-    }
-    if (!skipSyncToAllFiles && this.#syncFiles) {
-      this.#syncToAllFiles(singular, plural)
-    }
+  #translate = (locale, singular, plural) => {
+    if (!this.#hasLocale(locale)) locale = this.#resolveLocale(locale)
+    const synced = this.#syncFiles ? new Map() : undefined
+    const value = this.#translateInLocale(locale, singular, plural, synced)
+    if (value === PENDING_TRANSLATION) return {}
 
+    if (synced) {
+      for (const target of this.#localesKeys()) {
+        if (!synced.has(target)) this.#translateInLocale(target, singular, plural, synced)
+      }
+    }
+    return value
+  }
+
+  #inlineDefaultIndex = (phrase) => {
+    let colon = phrase.indexOf(':')
+    if (colon < 0) return colon
+    const separator = this.#objectNotation
+    const offset = separator.indexOf(':')
+    if (offset < 0) return colon
+    while (colon >= offset && phrase.startsWith(separator, colon - offset)) {
+      colon = phrase.indexOf(':', colon - offset + separator.length)
+    }
+    return colon
+  }
+
+  #translateInLocale = (locale, singular, plural, synced, skipRetry) => {
+    if (synced?.has(locale)) return synced.get(locale)
     let defaultSingular = singular
     let defaultPlural = plural
     const originalSingular = singular
-    const originalPlural = plural
     if (this.#objectNotation) {
-      let indexOfColon = singular.indexOf(':')
+      let indexOfColon = this.#inlineDefaultIndex(singular)
       if (indexOfColon > 0) {
         defaultSingular = singular.substring(indexOfColon + 1)
         singular = singular.substring(0, indexOfColon)
       }
-      if (plural && typeof plural !== 'number') {
-        indexOfColon = plural.indexOf(':')
+      if (typeof plural === 'string') {
+        indexOfColon = this.#inlineDefaultIndex(plural)
         if (indexOfColon > 0) {
           defaultPlural = plural.substring(indexOfColon + 1)
-          plural = plural.substring(0, indexOfColon)
         }
       }
     }
 
     const pathSegments = this.#getObjectPathSegments(singular)
-    if (!pathSegments) {
-      const catalog = this.#locales[locale]
-      let value = Object.hasOwn(catalog, singular) ? catalog[singular] : undefined
-      const retryLocale = value == null ? this.#getRetryLocale(locale, skipRetry) : undefined
-
-      if (plural && value == null) {
-        if (retryLocale !== undefined) {
-          this.#logDebug(
-            'Missing ' +
-              singular +
-              ' in ' +
-              locale +
-              ' retrying in ' +
-              retryLocale
-          )
-          value = this.#translate(retryLocale, originalSingular, originalPlural, true, true)
-        } else {
-          value = {
-            one: defaultSingular || singular,
-            other: defaultPlural || plural
-          }
-        }
-
-        setOwn(catalog, singular, this.#missingKeyFn(locale, value))
-        this.#write(locale)
-        value = catalog[singular]
-      }
-
-      if (value == null) {
-        if (retryLocale !== undefined) {
-          this.#logDebug(
-            'Missing ' +
-              singular +
-              ' in ' +
-              locale +
-              ' retrying in ' +
-              retryLocale
-          )
-          value = this.#translate(retryLocale, originalSingular, originalPlural, true, true)
-        } else {
-          value = defaultSingular || singular
-        }
-
-        setOwn(catalog, singular, this.#missingKeyFn(locale, value))
-        this.#write(locale)
-        value = catalog[singular]
-      }
-
-      return value
+    const catalog = this.#locales[locale]
+    const existing = pathSegments
+      ? this.#getObjectValue(catalog, pathSegments)
+      : Object.hasOwn(catalog, singular) ? catalog[singular] : undefined
+    if (existing != null) {
+      synced?.set(locale, existing)
+      return existing
     }
 
-    let value = this.#getObjectValue(locale, pathSegments)
-    if (value != null) {
-      return value
+    let pending = this.#pendingMissingKeys.get(catalog)
+    // A callback can translate its own key before it returns a value to store.
+    if (pending?.has(singular)) {
+      return PENDING_TRANSLATION
     }
     const retryLocale = this.#getRetryLocale(locale, skipRetry)
+    let value
+    if (retryLocale !== undefined) {
+      this.#logDebug('Missing ' + singular + ' in ' + locale + ' retrying in ' + retryLocale)
+      value = this.#translateInLocale(retryLocale, originalSingular, plural, synced, true)
+      if (value === PENDING_TRANSLATION) return value
+    } else {
+      value = typeof plural === 'string'
+        ? { one: defaultSingular, other: defaultPlural }
+        : defaultSingular
+    }
 
-    if (plural) {
-      if (retryLocale !== undefined) {
-        this.#logDebug(
-          'Missing ' +
-            singular +
-            ' in ' +
-            locale +
-            ' retrying in ' +
-            retryLocale
-        )
-        this.#setObjectValue(locale, pathSegments, this.#translate(
-          retryLocale, originalSingular, originalPlural, true, true
-        ))
-      } else {
-        this.#setObjectValue(locale, pathSegments, {
-          one: defaultSingular || singular,
-          other: defaultPlural || plural
-        })
+    if (this.#missingKeyFn) {
+      if (!pending) {
+        pending = new Set()
+        this.#pendingMissingKeys.set(catalog, pending)
       }
-      this.#write(locale)
-      value = this.#getObjectValue(locale, pathSegments)
-    }
-
-    if (value == null) {
-      if (retryLocale !== undefined) {
-        this.#logDebug(
-          'Missing ' +
-            singular +
-            ' in ' +
-            locale +
-            ' retrying in ' +
-            retryLocale
-        )
-        this.#setObjectValue(locale, pathSegments, this.#translate(
-          retryLocale, originalSingular, originalPlural, true, true
-        ))
-      } else {
-        this.#setObjectValue(locale, pathSegments, defaultSingular || singular)
+      pending.add(singular)
+      try {
+        value = this.#missingKeyFn(locale, value)
+      } finally {
+        pending.delete(singular)
       }
-      this.#write(locale)
     }
 
-    return this.#getObjectValue(locale, pathSegments)
-  }
-
-  #syncToAllFiles = (singular, plural) => {
-    for (const locale in this.#locales) {
-      this.#translate(locale, singular, plural, true)
+    if (pathSegments) {
+      this.#setObjectValue(catalog, pathSegments, value)
+    } else {
+      setOwn(catalog, singular, value)
     }
+    this.#write(locale)
+    synced?.set(locale, value)
+    return value
   }
 
   #getObjectPathSegments = (singular) => {
@@ -1208,8 +1164,8 @@ class I18n {
       return segments
     }
 
-    const indexOfDot = singular.lastIndexOf(this.#objectNotation)
-    if (indexOfDot <= 0 || indexOfDot >= singular.length - 1) {
+    const lastSeparator = singular.lastIndexOf(this.#objectNotation)
+    if (lastSeparator <= 0 || lastSeparator + this.#objectNotation.length === singular.length) {
       this.#objectPathSegments.set(singular, null)
       return null
     }
@@ -1220,8 +1176,8 @@ class I18n {
     return segments
   }
 
-  #getObjectValue = (locale, segments) => {
-    let value = this.#locales[locale]
+  #getObjectValue = (catalog, segments) => {
+    let value = catalog
     for (const key of segments) {
       if (value === null || typeof value !== 'object' || !Object.hasOwn(value, key)) {
         return undefined
@@ -1231,8 +1187,8 @@ class I18n {
     return value
   }
 
-  #setObjectValue = (locale, segments, value) => {
-    let object = this.#locales[locale]
+  #setObjectValue = (catalog, segments, value) => {
+    let object = catalog
     for (let index = 0; index < segments.length - 1; index += 1) {
       const key = segments[index]
       let child = Object.hasOwn(object, key) ? object[key] : undefined
@@ -1242,12 +1198,7 @@ class I18n {
       object = child
     }
 
-    const key = segments.at(-1)
-    // A callback can translate this same path before returning its replacement.
-    if (!Object.hasOwn(object, key)) {
-      setOwn(object, key, {})
-    }
-    setOwn(object, key, this.#missingKeyFn(locale, value))
+    setOwn(object, segments.at(-1), value)
   }
 
   #read = (locale) => {
@@ -1287,15 +1238,16 @@ class I18n {
       if (fs.existsSync(file)) {
         this.#failedCatalogs.set(locale, file)
         this.#logError('unable to read locale file ' + file, readError)
-        return
+      } else {
+        this.#failedCatalogs.delete(locale)
+        if (!this.#hasLocale(locale)) {
+          this.#logDebug('initializing ' + file)
+          this.#write(locale)
+        }
       }
-
-      this.#failedCatalogs.delete(locale)
-      if (this.#hasLocale(locale)) {
-        return
-      }
-      this.#logDebug('initializing ' + file)
-      this.#write(locale)
+    }
+    if (this.#autoReload && (this.#hasLocale(locale) || this.#failedCatalogs.has(locale))) {
+      this.#watchedLocales.add(locale)
     }
   }
 
@@ -1315,7 +1267,6 @@ class I18n {
   }
 
   #write = (locale) => {
-    let stats
     let target
     let tmp
 
@@ -1324,11 +1275,11 @@ class I18n {
     }
 
     try {
-      stats = fs.lstatSync(this.#directory)
+      fs.lstatSync(this.#directory)
     } catch (error) {
       this.#logDebug('creating locales dir in: ' + this.#directory)
       try {
-        fs.mkdirSync(this.#directory, this.#directoryPermissions)
+        fs.mkdirSync(this.#directory, { recursive: true, mode: this.#directoryPermissions ?? undefined })
       } catch (mkdirError) {
         if (mkdirError.code !== 'EEXIST') {
           throw mkdirError
@@ -1342,28 +1293,25 @@ class I18n {
 
     try {
       target = this.#getStorageFilePath(locale)
-      const failedFile = this.#failedCatalogs.get(locale)
-      if (failedFile) {
-        this.#backupFailedCatalog(failedFile)
-        this.#failedCatalogs.delete(locale)
-      }
-      tmp = target + '.tmp'
-      fs.writeFileSync(
-        tmp,
-        this.#parser.stringify(this.#locales[locale], null, this.#indent),
-        'utf8'
-      )
-      stats = fs.statSync(tmp)
-      if (stats.isFile()) {
+      const contents = this.#parser.stringify(this.#locales[locale], null, this.#indent)
+      const current = fs.statSync(target, { throwIfNoEntry: false })
+      const mode = current && (current.mode & 0o777)
+      tmp = path.join(path.dirname(target), '.' + randomUUID() + '.tmp')
+      const fd = fs.openSync(tmp, 'wx', mode)
+      try {
+        try {
+          fs.writeFileSync(fd, contents, 'utf8')
+          if (mode !== undefined) fs.fchmodSync(fd, mode)
+        } finally {
+          fs.closeSync(fd)
+        }
+        const failedFile = this.#failedCatalogs.get(locale)
+        if (failedFile) this.#backupFailedCatalog(failedFile)
         fs.renameSync(tmp, target)
-      } else {
-        this.#logError(
-          'unable to write locales to file (either ' +
-            tmp +
-            ' or ' +
-            target +
-            ' are not writeable?): '
-        )
+        this.#failedCatalogs.delete(locale)
+      } catch (error) {
+        fs.rmSync(tmp, { force: true })
+        throw error
       }
     } catch (error) {
       this.#logError(
@@ -1403,7 +1351,7 @@ class I18n {
     }
 
     try {
-      if (ext !== '.js' && fs.statSync(filepathJS)) {
+      if (ext !== '.js' && fs.statSync(filepathJS).isFile()) {
         this.#logDebug('using existing file ' + filepathJS)
         return filepathJS
       }
@@ -1451,8 +1399,6 @@ class I18n {
   #logError = (msg, errorValue) => {
     this.#logErrorFn(msg, errorValue)
   }
-
-  #missingKey = (locale, value) => value
 }
 
 export default I18n
