@@ -83,6 +83,16 @@ describe('translation optimization regressions', () => {
     assert.equal(i18n.__n('choice', 2), 'changed plural')
   })
 
+  it('selects plural categories per locale across the small-count cache boundary', () => {
+    const forms = { one: 'one', few: 'few', many: 'many', other: 'other' }
+    const i18n = new I18n({ staticCatalog: { en: { items: forms }, ru: { items: forms } } })
+    const cases = [[62, 'few'], [63, 'few'], [64, 'few'], [65, 'many'], [1.5, 'other']]
+    for (const [count, russian] of [...cases, ...cases.toReversed()]) {
+      assert.equal(i18n.__n.call({ locale: 'ru' }, 'items', count), russian)
+      assert.equal(i18n.__n.call({ locale: 'en' }, 'items', count), 'other')
+    }
+  })
+
   it('clears cached flat and nested paths when the separator changes', () => {
     const staticCatalog = { en: { 'group/value': 'flat', group: { value: 'nested' } } }
     const i18n = new I18n({ staticCatalog, objectNotation: true })

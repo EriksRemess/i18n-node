@@ -72,3 +72,18 @@ for (const [label, run, options] of cases) {
   }
   compare(`i18n ${label}`, variants)
 }
+
+for (const size of [64, 2048]) {
+  const keys = Array.from({ length: size }, (_, index) => `message${index}`)
+  const variants = implementations.map(([name, Constructor]) => {
+    const catalog = Object.fromEntries(keys.map((key) => [key, `${key} for {{name}} in {{city}}`]))
+    const i18n = new Constructor({ staticCatalog: { en: catalog }, objectNotation: true })
+    i18n.setLocale('en')
+    const view = { name: 'Alice', city: 'Riga' }
+    return [name, (index) => i18n.__(keys[index % size], view)]
+  })
+  for (const [, translate] of variants) {
+    assert.equal(translate(size - 1), `${keys[size - 1]} for Alice in Riga`)
+  }
+  compare(`i18n named values, ${size} rotating keys`, variants)
+}

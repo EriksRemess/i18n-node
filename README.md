@@ -174,7 +174,9 @@ node bench/vendors.js
 node bench/runtime.js
 ```
 
-The only runtime dependency is `make-plural`. Mustache.js 4.2.0 and
+The package has zero runtime dependencies. `lib/cardinals.js` is a verbatim
+copy of the cardinal rules from `make-plural` 8.2.0. To update the rules, copy
+`cardinals.js` and its license from the new release. Mustache.js 4.2.0 and
 math-interval-parser 2.0.1 are vendored as modernized ES modules under `lib/`,
 with their MIT licenses. The internal Mustache module exposes only rendering;
 i18n does not supply partial templates. Tests include the applicable official
@@ -194,6 +196,7 @@ For the full-library comparison, run `npm ci --prefix bench`, then `npm run benc
 
 Maintained by **Ēriks Remess**. Originally created by **Marcus Spiegel** and
 the i18n-node contributors. Third-party attribution is retained in
-`lib/mustache.LICENSE`, `lib/math-interval-parser.LICENSE`, and the test fixture license.
+`lib/make-plural.LICENSE`, `lib/mustache.LICENSE`, `lib/math-interval-parser.LICENSE`,
+and the test fixture license.
 
 [MIT license](LICENSE) · [Fork changelog](CHANGELOG.md)

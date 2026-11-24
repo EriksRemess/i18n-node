@@ -6,6 +6,7 @@ published as `@eriksremess/i18n`. Earlier upstream history is available in
 
 ## Unreleased
 
+- Vendor the make-plural 8.2.0 cardinal rules, removing the last runtime dependency.
 - Speed up interpolation, plural translation, interval selection, and cache
   eviction, including the vendored Mustache and interval helpers.
 

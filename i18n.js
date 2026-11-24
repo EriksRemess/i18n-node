@@ -8,7 +8,7 @@ import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { URLSearchParams } from 'node:url'
-import * as MakePlural from 'make-plural'
+import * as MakePlural from '#lib/cardinals'
 import { matchIntervalPrefix, parseIntervalPrefix } from '#lib/math-interval-parser'
 import renderMustache from '#lib/mustache'
 import pkg from '#package' with { type: 'json' }
@@ -44,6 +44,7 @@ const EMPTY_OBJECT = Object.freeze({})
 const MESSAGE_FEATURE_INTERVAL = 1
 const MESSAGE_FEATURE_PERCENT = 2
 const MESSAGE_FEATURE_MUSTACHE = 4
+const SMALL_PLURAL_COUNT_LIMIT = 64
 const PLURAL_RULES = new Map(
   Object.entries(MakePlural).map(([locale, resolver]) => [
     locale.toLowerCase().replaceAll('_', '-'), resolver
@@ -579,11 +580,19 @@ class I18n {
     let resolver = this.#pluralsForLocale[locale]
     if (!resolver) {
       const parts = locale.toLowerCase().split(/[_-\s]+/)
-      while (parts.length && !resolver) {
-        resolver = PLURAL_RULES.get(parts.join('-'))
+      let cardinal
+      while (parts.length && !cardinal) {
+        cardinal = PLURAL_RULES.get(parts.join('-'))
         parts.pop()
       }
-      resolver ||= MakePlural.en
+      cardinal ||= MakePlural.en
+      const categories = Object.create(null)
+      resolver = (value) => {
+        if (Number.isInteger(value) && value >= 0 && value < SMALL_PLURAL_COUNT_LIMIT) {
+          return categories[value] ??= cardinal(value)
+        }
+        return cardinal(value)
+      }
       this.#pluralsForLocale[locale] = resolver
     }
     return message[resolver(count)] ?? message.other

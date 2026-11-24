@@ -18,6 +18,13 @@ for (const suite of ['comments', 'delimiters', 'interpolation', 'inverted', 'sec
 }
 
 describe('vendored Mustache regressions', () => {
+  it('preserves names and whitespace when a later interpolation needs the full parser', () => {
+    const view = { user: { name: '<Alice>' }, 'cena kopā': 12 }
+    const template = '  {{ user.name }}\n\t{{ cena kopā }}\n'
+    assert.equal(render(template, view), '  &lt;Alice&gt;\n\t12\n')
+    assert.throws(() => render('{{user.name}} {{ cena kopā', view), /Unclosed tag/)
+  })
+
   it('searches past long whitespace runs without excessive backtracking', () => {
     const moduleUrl = new URL('../lib/mustache.js', import.meta.url).href
     execFileSync(process.execPath, ['--input-type=module', '--eval', `
